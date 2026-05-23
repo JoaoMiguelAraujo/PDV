@@ -53,13 +53,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
-# Prisma — engine + schema precisam estar disponíveis em runtime para `migrate deploy`.
-# Prisma — schema + CLI + engines precisam estar disponíveis em runtime
-# para o `db push` rodado pelo entrypoint a cada boot.
+# Schema Prisma — usado pelo entrypoint para `db push`.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+
+# node_modules completo do builder — sobrescreve o minimizado do standalone.
+# Necessário porque o Prisma CLI (rodado pelo entrypoint) tem várias transitivas
+# (effect, @effect/*, etc.) que o tree-shake do Next não preserva. Copiar só
+# prisma/@prisma/.prisma deixa o CLI quebrado com "Cannot find module 'effect'".
+# Trade-off: imagem ~150MB maior, deploy idempotente sem whack-a-mole.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
