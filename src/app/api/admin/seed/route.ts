@@ -33,7 +33,7 @@ export async function POST(req: Request) {
 
     try {
         const result = await runSeed({ force });
-        logger.info('seed/runSeed', result);
+        logger.info('seed/runSeed', { result });
         return NextResponse.json(result);
     } catch (err: any) {
         logger.error('seed/runSeed crash', { message: err?.message });
