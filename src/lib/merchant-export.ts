@@ -124,6 +124,14 @@ export interface ODOption {
     status?: 'AVAILABLE' | 'UNAVAILABLE';
     price?: ODItemPrice;
     maxPermitted?: number;
+    /**
+     * Campo extra fora da spec OD v1.7 (a spec original define Option apenas
+     * com id/itemId/index/status/price). Incluímos o nome legível aqui para
+     * que consumers — em particular o menuGo importando adicionais — não
+     * precisem fazer lookup via itemId em um Item separado. Consumers que
+     * respeitam só a spec estrita ignoram campos extras.
+     */
+    name?: string;
 }
 export interface ODMerchant {
     lastUpdate: string;
@@ -245,6 +253,10 @@ export async function buildMerchantOD(merchantId: number): Promise<ODMerchant> {
                             originalValue: Number(o.precoAdicional),
                             currency: 'BRL',
                         },
+                        // Campo extra (fora da spec) com o nome humano da opção.
+                        // Necessário pro menuGo conseguir importar como adicional
+                        // sem precisar dereferenciar via itemId/Item separado.
+                        name: o.nome,
                     })),
                 };
                 optionGroups.push(og);
