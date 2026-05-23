@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { PageContainer, PageHeader } from '@/components/PageHeader';
 
 interface MerchantLite { id: number; name: string }
 interface Summary {
@@ -62,27 +63,30 @@ export default function ReportsClient() {
     useEffect(() => { load(); }, [load]);
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-6">
-            <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <h1 className="text-xl font-black">Relatórios</h1>
+        <PageContainer>
+            <PageHeader
+                title="Relatórios"
+                subtitle="Vendas, ticket médio, top produtos, DRE simplificado e callbacks com erro."
+                icon="analytics"
+            >
                 <select
                     value={selectedMerchantId ?? ''}
                     onChange={e => setSelectedMerchantId(parseInt(e.target.value, 10))}
-                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 text-sm"
+                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-sm font-medium"
                 >
-                    {merchants.length === 0 && <option value="">Cadastre um merchant</option>}
+                    {merchants.length === 0 && <option value="">Cadastre um estabelecimento</option>}
                     {merchants.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
-                <div className="flex gap-1">
+                <div className="flex gap-1 p-1 rounded-lg bg-slate-100 dark:bg-white/[0.03]">
                     {(['hoje', '7d', '30d', 'mes'] as const).map(p => (
                         <button
                             key={p}
                             onClick={() => setPeriodo(p)}
-                            className={`text-xs font-bold px-3 py-2 rounded-lg ${periodo === p ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-white/5'}`}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-md transition ${periodo === p ? 'bg-white dark:bg-slate-800 text-primary shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
                         >{p === 'hoje' ? 'Hoje' : p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : 'Este mês'}</button>
                     ))}
                 </div>
-            </div>
+            </PageHeader>
 
             {loading || !summary ? (
                 <div className="text-center py-20 text-slate-400 text-sm">Carregando…</div>
@@ -176,7 +180,7 @@ export default function ReportsClient() {
                     </div>
                 </div>
             )}
-        </div>
+        </PageContainer>
     );
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { PageContainer, PageHeader } from '@/components/PageHeader';
 
 interface MerchantLite { id: number; name: string }
 interface Insumo {
@@ -61,30 +62,36 @@ export default function EstoqueClient() {
     }
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-6">
-            <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <h1 className="text-xl font-black">Estoque</h1>
+        <PageContainer>
+            <PageHeader
+                title="Estoque"
+                subtitle="Insumos com custo médio ponderado e baixa automática pela ficha técnica."
+                icon="inventory_2"
+            >
                 <select
                     value={selectedMerchantId ?? ''}
                     onChange={e => setSelectedMerchantId(parseInt(e.target.value, 10))}
-                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 text-sm"
+                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-sm font-medium"
                 >
-                    {merchants.length === 0 && <option value="">Cadastre um merchant</option>}
+                    {merchants.length === 0 && <option value="">Cadastre um estabelecimento</option>}
                     {merchants.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
-                <div className="flex gap-1">
-                    <button onClick={() => setFiltro('todos')} className={`text-xs font-bold px-3 py-2 rounded-lg ${filtro === 'todos' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-white/5'}`}>Todos</button>
-                    <button onClick={() => setFiltro('alerta')} className={`text-xs font-bold px-3 py-2 rounded-lg ${filtro === 'alerta' ? 'bg-amber-500 text-white' : 'bg-slate-100 dark:bg-white/5'}`}>⚠ Alerta</button>
+                <div className="flex gap-1 p-1 rounded-lg bg-slate-100 dark:bg-white/[0.03]">
+                    <button onClick={() => setFiltro('todos')} className={`text-xs font-bold px-3 py-1.5 rounded-md transition ${filtro === 'todos' ? 'bg-white dark:bg-slate-800 text-primary shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}>Todos</button>
+                    <button onClick={() => setFiltro('alerta')} className={`text-xs font-bold px-3 py-1.5 rounded-md transition flex items-center gap-1 ${filtro === 'alerta' ? 'bg-white dark:bg-slate-800 text-amber-600 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-amber-600'}`}>
+                        <span className="material-symbols-outlined text-[14px]">warning</span>
+                        Alerta
+                    </button>
                 </div>
                 <button
                     onClick={() => setShowInsumoForm({ open: true })}
                     disabled={selectedMerchantId == null}
-                    className="ml-auto text-xs font-bold px-3 py-2 rounded-lg bg-primary text-white disabled:opacity-40 flex items-center gap-1.5"
+                    className="text-sm font-bold px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 hover:shadow-glow disabled:opacity-40 transition flex items-center gap-1.5"
                 >
-                    <span className="material-symbols-outlined text-[14px]">add</span>
+                    <span className="material-symbols-outlined text-[18px]">add</span>
                     Novo insumo
                 </button>
-            </div>
+            </PageHeader>
 
             {loading ? (
                 <div className="text-center py-20 text-slate-400 text-sm">Carregando…</div>
@@ -154,7 +161,7 @@ export default function EstoqueClient() {
             {toast && (
                 <div className="fixed bottom-6 right-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm px-4 py-3 rounded-lg shadow-2xl font-medium z-50">{toast}</div>
             )}
-        </div>
+        </PageContainer>
     );
 }
 

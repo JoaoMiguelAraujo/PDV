@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { PageContainer, PageHeader } from '@/components/PageHeader';
 
 const SECRET_MASK = '••••••••••••';
 
@@ -107,20 +108,20 @@ export default function MerchantsClient() {
     }
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-6">
-            <div className="flex items-center gap-3 mb-4">
-                <h1 className="text-xl font-black">Estabelecimentos</h1>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                    Credenciais OD + BasicInfo + Serviços
-                </span>
+        <PageContainer>
+            <PageHeader
+                title="Estabelecimentos"
+                subtitle="Credenciais Open Delivery, BasicInfo (CNPJ, endereço, telefones) e serviços disponíveis."
+                icon="store"
+            >
                 <button
                     onClick={() => setCreating(true)}
-                    className="ml-auto text-xs font-bold px-3 py-2 rounded-lg bg-primary text-white hover:opacity-90 flex items-center gap-1.5"
+                    className="text-sm font-bold px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 hover:shadow-glow flex items-center gap-1.5 transition"
                 >
-                    <span className="material-symbols-outlined text-[16px]">add</span>
+                    <span className="material-symbols-outlined text-[18px]">add</span>
                     Cadastrar estabelecimento
                 </button>
-            </div>
+            </PageHeader>
 
             {loading ? (
                 <div className="text-center py-20 text-slate-400 text-sm">Carregando…</div>
@@ -191,7 +192,7 @@ export default function MerchantsClient() {
                     {toast}
                 </div>
             )}
-        </div>
+        </PageContainer>
     );
 }
 

@@ -10,12 +10,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return (
         <html lang="pt-BR" className="dark">
             <head>
+                {/* Pré-conexão para tirar o cold-start da requisição de fontes. */}
+                <link rel="preconnect" href="https://fonts.googleapis.com" />
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+                {/* Inter (body) + Plus Jakarta Sans (display) + JetBrains Mono (mono). */}
+                <link
+                    rel="stylesheet"
+                    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+                />
                 <link
                     rel="stylesheet"
                     href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined"
                 />
             </head>
-            <body className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
+            <body className="text-slate-900 dark:text-slate-100 min-h-screen">
                 {children}
             </body>
         </html>

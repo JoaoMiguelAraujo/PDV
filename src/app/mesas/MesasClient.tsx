@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { PageContainer, PageHeader } from '@/components/PageHeader';
 
 interface MerchantLite { id: number; name: string }
 interface ComandaAberta { id: number; codigo: string; total: string; totalPago: string; abertaEm: string }
@@ -71,26 +72,29 @@ export default function MesasClient() {
     }
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-6">
-            <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <h1 className="text-xl font-black">Mesas</h1>
+        <PageContainer>
+            <PageHeader
+                title="Mesas"
+                subtitle="Salão e atendimento — abra comandas direto pelo número da mesa."
+                icon="table_restaurant"
+            >
                 <select
                     value={selectedMerchantId ?? ''}
                     onChange={e => setSelectedMerchantId(parseInt(e.target.value, 10))}
-                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 text-sm"
+                    className="px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-sm font-medium"
                 >
-                    {merchants.length === 0 && <option value="">Cadastre um merchant</option>}
+                    {merchants.length === 0 && <option value="">Cadastre um estabelecimento</option>}
                     {merchants.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
                 <button
                     onClick={() => setShowForm({ open: true })}
                     disabled={selectedMerchantId == null}
-                    className="ml-auto text-xs font-bold px-3 py-2 rounded-lg bg-primary text-white hover:opacity-90 flex items-center gap-1.5 disabled:opacity-40"
+                    className="text-sm font-bold px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 hover:shadow-glow flex items-center gap-1.5 disabled:opacity-40 transition"
                 >
-                    <span className="material-symbols-outlined text-[16px]">add</span>
+                    <span className="material-symbols-outlined text-[18px]">add</span>
                     Nova mesa
                 </button>
-            </div>
+            </PageHeader>
 
             {loading ? (
                 <div className="text-center py-20 text-slate-400 text-sm">Carregando…</div>
@@ -107,10 +111,12 @@ export default function MesasClient() {
                         return (
                             <article
                                 key={m.id}
-                                className={`relative rounded-2xl border-2 p-4 transition cursor-pointer ${
-                                    !m.ativo ? 'opacity-40 border-slate-200 dark:border-white/10'
-                                    : ocupada ? 'border-amber-300 dark:border-amber-500/50 bg-amber-50 dark:bg-amber-500/5 hover:bg-amber-100 dark:hover:bg-amber-500/10'
-                                    : 'border-emerald-300 dark:border-emerald-500/50 bg-emerald-50 dark:bg-emerald-500/5 hover:bg-emerald-100 dark:hover:bg-emerald-500/10'
+                                className={`group relative rounded-2xl p-5 cursor-pointer overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-elevated animate-fade-in ${
+                                    !m.ativo
+                                        ? 'opacity-40 border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/40'
+                                        : ocupada
+                                        ? 'border border-amber-300/60 dark:border-amber-500/30 bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-500/[0.06] dark:to-amber-500/[0.02]'
+                                        : 'border border-emerald-300/60 dark:border-emerald-500/30 bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-500/[0.06] dark:to-emerald-500/[0.02]'
                                 }`}
                                 onClick={() => {
                                     if (!m.ativo) return;
@@ -118,32 +124,42 @@ export default function MesasClient() {
                                     else abrirComanda(m.id);
                                 }}
                             >
-                                <div className="flex items-start justify-between mb-2">
-                                    <div className="text-2xl font-black">{m.numero}</div>
-                                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded ${
-                                        ocupada ? 'bg-amber-200 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
-                                        : 'bg-emerald-200 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
-                                    }`}>
-                                        {ocupada ? 'ocupada' : 'livre'}
-                                    </span>
-                                </div>
-                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
-                                    {m.capacidade ? `${m.capacidade} lugares` : '—'}
-                                </div>
-                                {ocupada ? (
-                                    <>
-                                        <div className="text-[10px] font-mono opacity-70">{m.comandas[0].codigo}</div>
-                                        <div className="text-lg font-black tabular-nums">R$ {total.toFixed(2)}</div>
-                                    </>
-                                ) : (
-                                    <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                                        <span className="material-symbols-outlined text-[14px]">add</span>
-                                        Abrir
-                                    </div>
+                                {/* Glow no canto superior */}
+                                {m.ativo && (
+                                    <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full blur-2xl opacity-40 ${
+                                        ocupada ? 'bg-amber-400' : 'bg-emerald-400'
+                                    }`} />
                                 )}
+                                <div className="relative">
+                                    <div className="flex items-start justify-between mb-3">
+                                        <div className="font-display text-3xl font-black tracking-tight">{m.numero}</div>
+                                        <span className={`text-[9px] font-black uppercase tracking-[0.14em] px-2 py-1 rounded-md ${
+                                            ocupada
+                                                ? 'bg-amber-500/20 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
+                                                : 'bg-emerald-500/20 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+                                        }`}>
+                                            {ocupada ? 'ocupada' : 'livre'}
+                                        </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1">
+                                        <span className="material-symbols-outlined text-[14px]">group</span>
+                                        {m.capacidade ? `${m.capacidade} lugares` : 'sem cap.'}
+                                    </div>
+                                    {ocupada ? (
+                                        <>
+                                            <div className="text-[10px] font-mono opacity-60 mb-0.5">{m.comandas[0].codigo}</div>
+                                            <div className="text-xl font-black tabular-nums text-amber-700 dark:text-amber-300">R$ {total.toFixed(2)}</div>
+                                        </>
+                                    ) : (
+                                        <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                                            <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                                            Abrir comanda
+                                        </div>
+                                    )}
+                                </div>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); setShowForm({ open: true, edit: m }); }}
-                                    className="absolute top-1 right-1 p-1 text-slate-400 hover:text-primary opacity-0 hover:opacity-100 transition"
+                                    className="absolute top-2 right-2 p-1.5 rounded-md text-slate-400 hover:text-primary hover:bg-white/40 dark:hover:bg-white/5 opacity-0 group-hover:opacity-100 transition"
                                     title="Editar"
                                 >
                                     <span className="material-symbols-outlined text-[14px]">edit</span>
@@ -172,7 +188,7 @@ export default function MesasClient() {
             {toast && (
                 <div className="fixed bottom-6 right-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm px-4 py-3 rounded-lg shadow-2xl font-medium z-50">{toast}</div>
             )}
-        </div>
+        </PageContainer>
     );
 }
 
