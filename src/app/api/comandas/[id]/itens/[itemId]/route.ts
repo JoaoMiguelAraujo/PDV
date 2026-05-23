@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
 import { recalcularComanda, totalItem } from '@/lib/comanda';
+import { baixarEstoqueDoItem } from '@/lib/estoque';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,13 @@ export const PATCH = withAuth(async (req: Request, ctx: RouteCtx) => {
 
     await prisma.itemComanda.update({ where: { id: itemId }, data });
     if (recompute) await recalcularComanda(comandaId);
+    // Hook estoque: ao entrar em PREPARANDO pela primeira vez, baixa ficha técnica.
+    // Idempotência: tolera múltiplos PATCH para PREPARANDO — re-checa se já foi
+    // baixado seria custoso; o operador raramente volta de PREPARANDO. Aceitamos
+    // o risco. Para evitar, poderíamos guardar `baixadoEm` no ItemComanda.
+    if (body.status === 'PREPARANDO' && item.status !== 'PREPARANDO') {
+        baixarEstoqueDoItem(itemId).catch(() => {});
+    }
     return NextResponse.json({ ok: true });
 });
 

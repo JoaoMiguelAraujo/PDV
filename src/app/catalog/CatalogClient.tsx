@@ -72,6 +72,7 @@ export default function CatalogClient() {
     const [categorias, setCategorias] = useState<Categoria[]>([]);
     const [produtos, setProdutos] = useState<Produto[]>([]);
     const [openProduto, setOpenProduto] = useState<ProdutoDetalhado | null>(null);
+    const [openFichaProduto, setOpenFichaProduto] = useState<Produto | null>(null);
     const [toast, setToast] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [showCatForm, setShowCatForm] = useState<{ open: boolean; edit?: Categoria }>({ open: false });
@@ -259,6 +260,14 @@ export default function CatalogClient() {
                                         Opções
                                     </button>
                                     <button
+                                        onClick={() => setOpenFichaProduto(p)}
+                                        className="text-xs font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 flex items-center gap-1.5"
+                                        title="Ficha técnica"
+                                    >
+                                        <span className="material-symbols-outlined text-[14px]">science</span>
+                                        Ficha
+                                    </button>
+                                    <button
                                         onClick={() => setShowProdForm({ open: true, edit: p })}
                                         className="p-2 text-slate-400 hover:text-primary"
                                         title="Editar"
@@ -314,6 +323,15 @@ export default function CatalogClient() {
                         if (r.ok) setOpenProduto(await r.json());
                         loadCatalog();
                     }}
+                />
+            )}
+
+            {openFichaProduto && selectedMerchantId != null && (
+                <FichaTecnicaDialog
+                    produto={openFichaProduto}
+                    merchantId={selectedMerchantId}
+                    onClose={() => setOpenFichaProduto(null)}
+                    onSaved={() => { setOpenFichaProduto(null); }}
                 />
             )}
 
@@ -575,6 +593,190 @@ function NovaOpcaoInline({ onAdd }: { onAdd: (nome: string, preco: number) => Pr
             >
                 add
             </button>
+        </div>
+    );
+}
+
+// ============================================================================
+// Ficha técnica (Onda 4)
+// ============================================================================
+
+interface InsumoMin {
+    id: number;
+    nome: string;
+    unidade: string;
+    custoMedio: string;
+    qtdAtual: string;
+}
+interface FichaItem {
+    id?: number;
+    insumoId: number;
+    quantidade: number;
+    insumo?: InsumoMin;
+}
+
+function FichaTecnicaDialog({ produto, merchantId, onClose, onSaved }: {
+    produto: Produto;
+    merchantId: number;
+    onClose: () => void;
+    onSaved: () => void;
+}) {
+    const [insumosCatalogo, setInsumosCatalogo] = useState<InsumoMin[]>([]);
+    const [ficha, setFicha] = useState<FichaItem[]>([]);
+    const [cmv, setCmv] = useState(0);
+    const [search, setSearch] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        (async () => {
+            const [rIns, rFicha] = await Promise.all([
+                fetch(`/api/insumos?merchantId=${merchantId}&ativo=1`, { cache: 'no-store' }),
+                fetch(`/api/produtos/${produto.id}/ficha`, { cache: 'no-store' }),
+            ]);
+            if (rIns.ok) setInsumosCatalogo((await rIns.json()).insumos || []);
+            if (rFicha.ok) {
+                const d = await rFicha.json();
+                setFicha((d.ficha || []).map((f: any) => ({
+                    id: f.id,
+                    insumoId: f.insumoId,
+                    quantidade: Number(f.quantidade),
+                    insumo: f.insumo,
+                })));
+                setCmv(Number(d.cmv));
+            }
+            setLoading(false);
+        })();
+    }, [produto.id, merchantId]);
+
+    const visibles = insumosCatalogo.filter(i =>
+        !ficha.some(f => f.insumoId === i.id) &&
+        (search === '' || i.nome.toLowerCase().includes(search.toLowerCase()))
+    );
+
+    function add(i: InsumoMin) {
+        setFicha(f => [...f, { insumoId: i.id, quantidade: 1, insumo: i }]);
+    }
+    function update(idx: number, qty: number) {
+        setFicha(f => f.map((x, i) => i === idx ? { ...x, quantidade: qty } : x));
+    }
+    function remove(idx: number) {
+        setFicha(f => f.filter((_, i) => i !== idx));
+    }
+
+    async function salvar() {
+        setBusy(true);
+        const r = await fetch(`/api/produtos/${produto.id}/ficha`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itens: ficha.map(f => ({ insumoId: f.insumoId, quantidade: f.quantidade })) }),
+        });
+        setBusy(false);
+        if (r.ok) {
+            // Recalcula CMV após salvar
+            const r2 = await fetch(`/api/produtos/${produto.id}/ficha`, { cache: 'no-store' });
+            if (r2.ok) setCmv(Number((await r2.json()).cmv));
+            onSaved();
+        } else {
+            alert((await r.json()).message || 'Erro');
+        }
+    }
+
+    const preco = Number(produto.preco);
+    const margem = preco > 0 ? +((preco - cmv) / preco * 100).toFixed(1) : 0;
+    const cmvNovo = ficha.reduce((s, f) => s + (f.quantidade * Number(f.insumo?.custoMedio || 0)), 0);
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-12 p-4 overflow-y-auto" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-3xl border my-4">
+                <header className="px-6 py-4 border-b flex items-center justify-between">
+                    <div>
+                        <h2 className="text-lg font-black">Ficha técnica — {produto.nome}</h2>
+                        <p className="text-[11px] text-slate-500">Insumos consumidos por 1 unidade vendida</p>
+                    </div>
+                    <button onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+                </header>
+
+                <div className="px-6 py-3 border-b grid grid-cols-3 gap-3 bg-slate-50 dark:bg-white/5">
+                    <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-500 tracking-widest">Preço de venda</div>
+                        <div className="text-lg font-black tabular-nums">R$ {preco.toFixed(2)}</div>
+                    </div>
+                    <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-500 tracking-widest">CMV (atual)</div>
+                        <div className="text-lg font-black tabular-nums">R$ {cmvNovo.toFixed(4)}</div>
+                    </div>
+                    <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-500 tracking-widest">Margem</div>
+                        <div className={`text-lg font-black tabular-nums ${preco > 0 && cmvNovo < preco ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {preco > 0 ? (+((preco - cmvNovo) / preco * 100).toFixed(1)) : 0}%
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 divide-x divide-slate-100 dark:divide-white/5">
+                    <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+                        <h3 className="text-xs font-black uppercase tracking-widest mb-2">Ficha ({ficha.length})</h3>
+                        {loading ? (
+                            <p className="text-sm text-slate-400 text-center py-4">Carregando…</p>
+                        ) : ficha.length === 0 ? (
+                            <p className="text-sm text-slate-400 italic">Sem insumos. Adicione ao lado.</p>
+                        ) : (
+                            ficha.map((f, idx) => (
+                                <div key={idx} className="flex items-center gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-3 py-2">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-bold truncate">{f.insumo?.nome}</div>
+                                        <div className="text-[10px] text-slate-500">R$ {Number(f.insumo?.custoMedio || 0).toFixed(4)}/{f.insumo?.unidade}</div>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        step="0.001"
+                                        min="0.001"
+                                        value={f.quantidade}
+                                        onChange={e => update(idx, Number(e.target.value))}
+                                        className="w-20 px-2 py-1 rounded border bg-white dark:bg-slate-950 text-sm text-right"
+                                    />
+                                    <span className="text-[10px] text-slate-400 w-8">{f.insumo?.unidade}</span>
+                                    <button onClick={() => remove(idx)} className="text-red-600 text-sm">×</button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+                        <h3 className="text-xs font-black uppercase tracking-widest mb-2">Adicionar insumo</h3>
+                        <input
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Filtrar…"
+                            className="w-full px-3 py-2 rounded-lg border bg-slate-50 dark:bg-slate-950 text-sm"
+                        />
+                        {visibles.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic text-center py-4">Nenhum insumo livre.</p>
+                        ) : (
+                            visibles.slice(0, 30).map(i => (
+                                <button
+                                    key={i.id}
+                                    onClick={() => add(i)}
+                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-left"
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-bold truncate">{i.nome}</div>
+                                        <div className="text-[10px] text-slate-500">R$ {Number(i.custoMedio).toFixed(4)}/{i.unidade}</div>
+                                    </div>
+                                    <span className="material-symbols-outlined text-[16px] text-primary">add</span>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                <footer className="px-6 py-4 border-t flex justify-end gap-2">
+                    <button onClick={onClose} className="text-sm font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5">Cancelar</button>
+                    <button onClick={salvar} disabled={busy} className="text-sm font-bold px-3 py-2 rounded-lg bg-primary text-white disabled:opacity-50">
+                        {busy ? 'Salvando…' : 'Salvar ficha'}
+                    </button>
+                </footer>
+            </div>
         </div>
     );
 }

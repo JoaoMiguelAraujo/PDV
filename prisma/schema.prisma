@@ -91,6 +91,7 @@ model Merchant {
   mesas              Mesa[]
   comandas           Comanda[]
   caixas             Caixa[]
+  insumos            Insumo[]
 
   @@index([ativo])
 }
@@ -312,10 +313,103 @@ model Produto {
 
   grupos        GrupoModificador[]
   itensComanda  ItemComanda[]
+  ficha         ProdutoInsumo[]
 
   @@index([merchantId, ativo])
   @@index([categoriaId])
   @@index([merchantId, sku])
+}
+
+// =============================================================================
+// Estoque — Insumo, ProdutoInsumo (ficha técnica), MovimentoEstoque.
+//
+// Insumo é a "matéria-prima" (Hambúrguer Bovino 150g, Pão Brioche, etc.).
+// Ficha técnica vincula Produto ↔ Insumos via N:N + quantidade consumida por
+// unidade vendida do produto.
+//
+// Quando um ItemComanda transiciona para PREPARANDO, o backend baixa
+// automaticamente do estoque a quantidade × ficha técnica de cada insumo,
+// gerando MovimentoEstoque tipo=VENDA. Ao cancelar (status=CANCELADO antes
+// de PREPARANDO), nada é estornado pois a baixa nem ocorreu.
+//
+// custoMedio é ponderado: a cada ENTRADA com custoUnitario novo, recalcula.
+// =============================================================================
+enum InsumoUnidade {
+  UN
+  KG
+  G
+  L
+  ML
+  CX     // caixa
+  PCT    // pacote
+}
+
+model Insumo {
+  id           Int       @id @default(autoincrement())
+  merchant     Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId   Int
+  nome         String    @db.VarChar(200)
+  unidade      InsumoUnidade @default(UN)
+  // Quantidade atual em estoque (em unidade do insumo).
+  qtdAtual     Decimal   @default(0) @db.Decimal(14, 3)
+  // Estoque mínimo — alerta visual quando qtdAtual <= qtdMinima.
+  qtdMinima    Decimal   @default(0) @db.Decimal(14, 3)
+  // Custo médio ponderado por unidade. Recalculado em cada ENTRADA.
+  custoMedio   Decimal   @default(0) @db.Decimal(12, 4)
+  sku          String?   @db.VarChar(80)
+  ativo        Boolean   @default(true)
+  observacao   String?   @db.Text
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  ficha        ProdutoInsumo[]
+  movimentos   MovimentoEstoque[]
+
+  @@index([merchantId, ativo])
+  @@unique([merchantId, sku])
+}
+
+model ProdutoInsumo {
+  id          Int      @id @default(autoincrement())
+  produto     Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  produtoId   Int
+  insumo      Insumo   @relation(fields: [insumoId], references: [id], onDelete: Cascade)
+  insumoId    Int
+  // Quantidade do insumo consumida por UMA unidade vendida do produto.
+  quantidade  Decimal  @db.Decimal(14, 3)
+  observacao  String?  @db.Text
+
+  @@unique([produtoId, insumoId])
+  @@index([insumoId])
+}
+
+enum MovimentoEstoqueTipo {
+  ENTRADA      // compra/recebimento
+  SAIDA        // saída manual (uso interno, transferência)
+  AJUSTE       // contagem física
+  PERDA        // descarte (vencimento, dano)
+  VENDA        // baixa automática vinda de ItemComanda → PREPARANDO
+}
+
+model MovimentoEstoque {
+  id            Int                     @id @default(autoincrement())
+  insumo        Insumo                  @relation(fields: [insumoId], references: [id], onDelete: Cascade)
+  insumoId      Int
+  tipo          MovimentoEstoqueTipo
+  // Sempre positivo. Sinal (entrada/saída) inferido pelo tipo.
+  quantidade    Decimal                 @db.Decimal(14, 3)
+  // Apenas para ENTRADA: custo da unidade nessa compra (alimenta custoMedio).
+  custoUnitario Decimal?                @db.Decimal(12, 4)
+  // Snapshot do qtdAtual e custoMedio ANTES desse movimento (auditoria).
+  qtdAntes      Decimal?                @db.Decimal(14, 3)
+  qtdDepois     Decimal?                @db.Decimal(14, 3)
+  // Referência ao item que causou a baixa (quando tipo=VENDA).
+  itemComandaId Int?
+  observacao    String?                 @db.Text
+  criadoEm      DateTime                @default(now())
+
+  @@index([insumoId, criadoEm])
+  @@index([tipo, criadoEm])
 }
 
 // =============================================================================
