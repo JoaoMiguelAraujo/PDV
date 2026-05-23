@@ -88,6 +88,8 @@ model Merchant {
   categorias         Categoria[]
   produtos           Produto[]
   services           MerchantService[]
+  mesas              Mesa[]
+  comandas           Comanda[]
 
   @@index([ativo])
 }
@@ -199,6 +201,7 @@ model Order {
   cancelRequestedAt  DateTime?
 
   callbacks          Callback[]
+  comanda            Comanda?
 
   @@index([merchantId, status])
   @@index([status, recebidoEm])
@@ -307,6 +310,7 @@ model Produto {
   atualizadoEm  DateTime  @updatedAt
 
   grupos        GrupoModificador[]
+  itensComanda  ItemComanda[]
 
   @@index([merchantId, ativo])
   @@index([categoriaId])
@@ -335,6 +339,137 @@ model GrupoModificador {
   opcoes       OpcaoModificador[]
 
   @@index([produtoId])
+}
+
+// =============================================================================
+// Operação local — Mesa, Comanda, ItemComanda, Pagamento.
+//
+// NÃO é parte do schema Open Delivery (a spec OD cobre só pedidos vindos da
+// OA). Estes modelos são puramente internos do PDV para:
+//  - atendimento de salão (mesa, comanda eletrônica)
+//  - registro de pagamento local (dinheiro/pix/cartão — sem fiscal por ora)
+//
+// Quando um pedido OD chega via /v1/newEvent → ingest cria Order; nada
+// automático cria Comanda. Para mesas onde a OA externa entrega, manter
+// Comanda local em paralelo é responsabilidade do operador (caso de uso raro
+// e fora de escopo do MVP).
+// =============================================================================
+model Mesa {
+  id           Int       @id @default(autoincrement())
+  merchant     Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId   Int
+  numero       String    @db.VarChar(20)
+  capacidade   Int?
+  ativo        Boolean   @default(true)
+  observacao   String?   @db.Text
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  comandas     Comanda[]
+
+  @@unique([merchantId, numero])
+  @@index([merchantId, ativo])
+}
+
+enum ComandaStatus {
+  ABERTA
+  FECHADA
+  CANCELADA
+}
+
+model Comanda {
+  id              Int            @id @default(autoincrement())
+  // Código curto para o operador ditar/anotar (ex.: A0042).
+  codigo          String         @unique @db.VarChar(20)
+  merchant        Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId      Int
+  mesa            Mesa?          @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  mesaId          Int?
+  status          ComandaStatus  @default(ABERTA)
+  clienteNome     String?        @db.VarChar(200)
+  clienteTelefone String?        @db.VarChar(40)
+  clienteDocumento String?       @db.VarChar(20)
+  // Observação geral (ex.: "sem cebola em tudo", "aniversário do João")
+  observacao      String?        @db.Text
+  // Subtotal calculado a partir dos itens (snapshot persistido para listagens
+  // rápidas; recalculado a cada mutação).
+  subtotal        Decimal        @default(0) @db.Decimal(10, 2)
+  // Taxa de serviço (10% típica) calculada sobre subtotal — opcional.
+  taxaServico     Decimal        @default(0) @db.Decimal(10, 2)
+  desconto        Decimal        @default(0) @db.Decimal(10, 2)
+  total           Decimal        @default(0) @db.Decimal(10, 2)
+  totalPago       Decimal        @default(0) @db.Decimal(10, 2)
+  // Se a comanda foi gerada por um pedido OD da OA (rare), aponta para Order.
+  order           Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId         Int?           @unique
+  abertaEm        DateTime       @default(now())
+  fechadaEm       DateTime?
+  cancelMotivo    String?        @db.Text
+
+  itens           ItemComanda[]
+  pagamentos      Pagamento[]
+
+  @@index([merchantId, status])
+  @@index([mesaId, status])
+}
+
+enum ItemComandaStatus {
+  PENDENTE
+  PREPARANDO
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+model ItemComanda {
+  id              Int                @id @default(autoincrement())
+  comanda         Comanda            @relation(fields: [comandaId], references: [id], onDelete: Cascade)
+  comandaId       Int
+  produto         Produto?           @relation(fields: [produtoId], references: [id], onDelete: SetNull)
+  produtoId       Int?
+  // Snapshot — preserva nome/preço mesmo se o produto sumir do catálogo.
+  nomeSnapshot    String             @db.VarChar(200)
+  precoSnapshot   Decimal            @db.Decimal(10, 2)
+  quantidade      Decimal            @db.Decimal(10, 3) @default(1)
+  // Soma de precoAdicional das opções escolhidas.
+  acrescimoOpcoes Decimal            @db.Decimal(10, 2) @default(0)
+  total           Decimal            @db.Decimal(10, 2)
+  observacao      String?            @db.Text
+  status          ItemComandaStatus  @default(PENDENTE)
+  // JSON com [{ grupoId, opcaoId, nome, preco }] — preserva opções escolhidas.
+  opcoesJson      String?            @db.Text
+  adicionadoEm    DateTime           @default(now())
+  atualizadoEm    DateTime           @updatedAt
+
+  @@index([comandaId, status])
+  @@index([produtoId])
+}
+
+enum MetodoPagamento {
+  DINHEIRO
+  PIX
+  CREDITO
+  DEBITO
+  VOUCHER
+  OUTRO
+}
+
+model Pagamento {
+  id            Int             @id @default(autoincrement())
+  comanda       Comanda         @relation(fields: [comandaId], references: [id], onDelete: Cascade)
+  comandaId     Int
+  metodo        MetodoPagamento
+  valor         Decimal         @db.Decimal(10, 2)
+  // Troco devolvido (relevante só para DINHEIRO).
+  troco         Decimal         @default(0) @db.Decimal(10, 2)
+  // Identificador externo (ex.: transactionId de máquina de cartão, end-to-end
+  // do PIX). Opcional.
+  transactionId String?         @db.VarChar(120)
+  observacao    String?         @db.Text
+  registradoEm  DateTime        @default(now())
+
+  @@index([comandaId])
+  @@index([metodo, registradoEm])
 }
 
 model OpcaoModificador {
