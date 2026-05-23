@@ -108,32 +108,49 @@ async function postCallback(
     body: any | undefined,
     extraHeaders: Record<string, string> = {},
 ): Promise<CallResult> {
-    const token = await getToken(merchant);
-    if (!token) {
-        return { ok: false, httpStatus: 0, responseBody: '', erro: 'Falha ao obter access_token OAuth2' };
-    }
-
     const url = joinUrl(merchant.menugoBaseURL, `/api/v1/orders/${orderId}/${action}`);
-    const headers: Record<string, string> = {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...extraHeaders,
-    };
     const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
 
-    try {
-        const res = await fetch(url, { method: 'POST', headers, body: bodyStr });
-        const text = await res.text().catch(() => '');
-        return {
-            ok: res.ok,
-            httpStatus: res.status,
-            responseBody: text,
-            erro: res.ok ? null : `HTTP ${res.status}`,
+    // 1ª tentativa: usa token cacheado se houver.
+    // Em caso de 401 (token revogado/expirado no menuGo mas ainda no cache),
+    // invalida cache e tenta novamente uma única vez com token fresh.
+    let attempt = 0;
+    let lastResult: CallResult = { ok: false, httpStatus: 0, responseBody: '', erro: null };
+    while (attempt < 2) {
+        const token = await getToken(merchant);
+        if (!token) {
+            return { ok: false, httpStatus: 0, responseBody: '', erro: 'Falha ao obter access_token OAuth2' };
+        }
+        const headers: Record<string, string> = {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            ...extraHeaders,
         };
-    } catch (err: any) {
-        return { ok: false, httpStatus: 0, responseBody: '', erro: err?.message || 'erro de rede' };
+        try {
+            const res = await fetch(url, { method: 'POST', headers, body: bodyStr });
+            const text = await res.text().catch(() => '');
+            lastResult = {
+                ok: res.ok,
+                httpStatus: res.status,
+                responseBody: text,
+                erro: res.ok ? null : `HTTP ${res.status}`,
+            };
+            if (res.status === 401 && attempt === 0) {
+                // Token rejeitado pelo menuGo — invalida cache e tenta de novo.
+                logger.warn('menugo/callback 401 — invalidando token cache', {
+                    merchantId: merchant.id, action,
+                });
+                invalidateMerchantToken(merchant.id);
+                attempt++;
+                continue;
+            }
+            return lastResult;
+        } catch (err: any) {
+            return { ok: false, httpStatus: 0, responseBody: '', erro: err?.message || 'erro de rede' };
+        }
     }
+    return lastResult;
 }
 
 // ============================================================================
