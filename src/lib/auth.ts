@@ -1,11 +1,31 @@
 import 'server-only';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import bcrypt from 'bcrypt';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { env } from './env';
 import { AUTH_COOKIE, isCookieValid } from './auth-shared';
 
 export { AUTH_COOKIE, isCookieValid };
+
+/**
+ * Detecta se a request atual veio via HTTPS (direto ou via proxy reverso).
+ * Necessário porque o Coolify (e qualquer reverse-proxy) termina TLS antes de
+ * chegar no app — process.env.NODE_ENV='production' não diz nada sobre o
+ * scheme real. Setar `secure: true` num cookie HTTP-only faz o browser rejeitar
+ * silenciosamente.
+ */
+async function isHttpsRequest(): Promise<boolean> {
+    try {
+        const h = await headers();
+        const forwarded = h.get('x-forwarded-proto');
+        if (forwarded) return forwarded.split(',')[0].trim().toLowerCase() === 'https';
+        const host = h.get('host') || '';
+        // Fallback: assume HTTPS se host parece domínio público sem porta dev.
+        return false;
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Auth do operador admin do PDV.
@@ -68,10 +88,11 @@ export async function createSession(): Promise<void> {
     const expiresAt = Date.now() + TTL_MS;
     const value = buildCookieValue(expiresAt);
     const jar = await cookies();
+    const secure = await isHttpsRequest();
     jar.set(COOKIE_NAME, value, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        secure,
         path: '/',
         expires: new Date(expiresAt),
     });
@@ -79,10 +100,11 @@ export async function createSession(): Promise<void> {
 
 export async function destroySession(): Promise<void> {
     const jar = await cookies();
+    const secure = await isHttpsRequest();
     jar.set(COOKIE_NAME, '', {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        secure,
         path: '/',
         maxAge: 0,
     });
