@@ -222,6 +222,23 @@ function MerchantDialog({
     const [form, setForm] = useState<any>(() => initialForm(merchant));
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState<{ ok: boolean; results: Array<{ step: string; ok: boolean; detail: string }> } | null>(null);
+
+    async function handleTest() {
+        if (!merchant) return;
+        setTesting(true);
+        setTestResult(null);
+        try {
+            const res = await fetch(`/api/merchants/${merchant.id}/test`, { method: 'POST' });
+            const data = await res.json().catch(() => ({ ok: false, results: [{ step: 'Erro', ok: false, detail: `HTTP ${res.status}` }] }));
+            setTestResult(data);
+        } catch (err: any) {
+            setTestResult({ ok: false, results: [{ step: 'Erro de rede', ok: false, detail: err?.message || String(err) }] });
+        } finally {
+            setTesting(false);
+        }
+    }
 
     function set(k: string, v: any) { setForm((s: any) => ({ ...s, [k]: v })); }
     function setAddr(k: string, v: any) { setForm((s: any) => ({ ...s, address: { ...s.address, [k]: v } })); }
@@ -310,7 +327,49 @@ function MerchantDialog({
                     )}
                 </div>
 
-                <footer className="px-6 py-4 border-t border-slate-100 dark:border-white/5 flex justify-end gap-2">
+                {/* Resultado do teste de integração */}
+                {testResult && (
+                    <div className="px-6 pb-2">
+                        <div className={`rounded-xl border ${testResult.ok ? 'border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10'} p-3`}>
+                            <div className={`flex items-center gap-2 mb-2 text-xs font-black uppercase tracking-widest ${testResult.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                                <span className="material-symbols-outlined text-[16px]">{testResult.ok ? 'check_circle' : 'warning'}</span>
+                                {testResult.ok ? 'Integração saudável' : 'Encontrei problemas'}
+                                <button onClick={() => setTestResult(null)} className="ml-auto text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                </button>
+                            </div>
+                            <ul className="space-y-1.5">
+                                {testResult.results.map((r, i) => (
+                                    <li key={i} className="flex items-start gap-2 text-xs">
+                                        <span className={`material-symbols-outlined text-[14px] mt-px ${r.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                                            {r.ok ? 'task_alt' : 'cancel'}
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold">{r.step}</div>
+                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 font-mono break-all">{r.detail}</div>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                )}
+
+                <footer className="px-6 py-4 border-t border-slate-100 dark:border-white/5 flex justify-end gap-2 flex-wrap">
+                    {isEdit && (
+                        <button
+                            type="button"
+                            onClick={handleTest}
+                            disabled={testing || saving}
+                            className="mr-auto text-sm font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 disabled:opacity-50 flex items-center gap-1.5"
+                            title="Valida conectividade, OAuth2 e exportação do Merchant"
+                        >
+                            <span className={`material-symbols-outlined text-[16px] ${testing ? 'animate-spin' : ''}`}>
+                                {testing ? 'progress_activity' : 'electrical_services'}
+                            </span>
+                            {testing ? 'Testando…' : 'Testar integração'}
+                        </button>
+                    )}
                     <button type="button" onClick={onClose} className="text-sm font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5">
                         Fechar
                     </button>
