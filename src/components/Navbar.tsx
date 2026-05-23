@@ -9,6 +9,7 @@ const NAV = [
     { href: '/caixa', label: 'Caixa', icon: 'point_of_sale' },
     { href: '/catalog', label: 'Catálogo', icon: 'restaurant_menu' },
     { href: '/estoque', label: 'Estoque', icon: 'inventory_2' },
+    { href: '/reports', label: 'Relatórios', icon: 'analytics' },
     { href: '/merchants', label: 'Merchants', icon: 'store' },
     { href: '/settings', label: 'Settings', icon: 'tune' },
     { href: '/logs', label: 'Logs', icon: 'list_alt' },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface Merchant { id: number; name: string; merchantId: string }
 
@@ -89,6 +89,11 @@ export default function KDSClient() {
     const [busy, setBusy] = useState<Record<number, boolean>>({});
     const [cancelFor, setCancelFor] = useState<Order | null>(null);
     const [autoMode, setAutoMode] = useState(false);
+    const [soundOn, setSoundOn] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return true;
+        return window.localStorage.getItem('pdv_kds_sound') !== '0';
+    });
+    const knownIdsRef = useRef<Set<number> | null>(null);
 
     const showToast = (msg: string) => {
         setToast(msg);
@@ -103,7 +108,16 @@ export default function KDSClient() {
             ]);
             if (!ordersRes.ok) throw new Error('Falha ao carregar pedidos');
             const od = await ordersRes.json();
-            setOrders(od.orders || []);
+            const newOrders: Order[] = od.orders || [];
+            // Som no NEW: primeiro fetch → só popula o set; subsequentes → toca se
+            // entrou um NEW que ainda não tínhamos visto.
+            const newIds = new Set(newOrders.map(o => o.id));
+            if (knownIdsRef.current !== null) {
+                const novosNew = newOrders.filter(o => o.status === 'NEW' && !knownIdsRef.current!.has(o.id));
+                if (novosNew.length > 0 && soundOn) playBeep();
+            }
+            knownIdsRef.current = newIds;
+            setOrders(newOrders);
             if (settingsRes.ok) {
                 const sd = await settingsRes.json();
                 setAutoMode(!!sd.settings?.autoMode);
@@ -113,7 +127,13 @@ export default function KDSClient() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [soundOn]);
+
+    function toggleSound(next: boolean) {
+        setSoundOn(next);
+        try { window.localStorage.setItem('pdv_kds_sound', next ? '1' : '0'); } catch {}
+        if (next) playBeep(); // confirma audível
+    }
 
     useEffect(() => {
         fetchData();
@@ -217,6 +237,16 @@ export default function KDSClient() {
                             className="accent-primary"
                         />
                         Auto-refresh
+                    </label>
+                    <label className="text-xs font-bold flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={soundOn}
+                            onChange={e => toggleSound(e.target.checked)}
+                            className="accent-primary"
+                        />
+                        <span className="material-symbols-outlined text-[14px]">{soundOn ? 'volume_up' : 'volume_off'}</span>
+                        Som
                     </label>
                     <button
                         onClick={testEvent}
@@ -590,6 +620,36 @@ const STATUS_TONE: Record<Order['status'], { border: string; headerBg: string; b
         icon: 'cancel',
     },
 };
+
+/**
+ * Beep simples via Web Audio API — sem dependência de arquivo. 2 pulsos
+ * curtos de ~800Hz. Browsers podem bloquear até interação do usuário; o
+ * primeiro beep "real" só toca depois que ele interagiu com a página
+ * (toggle de som conta como interação).
+ */
+function playBeep() {
+    try {
+        const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = new Ctx();
+        const beep = (delay: number) => {
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.value = 880;
+            o.connect(g); g.connect(ctx.destination);
+            g.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+            g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + delay + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.18);
+            o.start(ctx.currentTime + delay);
+            o.stop(ctx.currentTime + delay + 0.2);
+        };
+        beep(0);
+        beep(0.25);
+        // Encerra contexto pra não vazar.
+        setTimeout(() => { try { ctx.close(); } catch {} }, 1000);
+    } catch {}
+}
 
 const TONE_BTN = {
     primary: 'bg-primary text-white hover:opacity-90',

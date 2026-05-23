@@ -153,6 +153,22 @@ function EventsList({ events, expanded, setExpanded }: { events: OdEvent[]; expa
 }
 
 function CallbacksList({ items, expanded, setExpanded }: { items: Callback[]; expanded: string | null; setExpanded: (k: string | null) => void }) {
+    const [retrying, setRetrying] = useState<number | null>(null);
+    const [toast, setToast] = useState<string | null>(null);
+
+    async function retry(cb: Callback) {
+        setRetrying(cb.id);
+        try {
+            const r = await fetch(`/api/callbacks/${cb.id}/retry`, { method: 'POST' });
+            const d = await r.json().catch(() => ({}));
+            setToast(d.ok ? `Retry OK (HTTP ${d.httpStatus})` : `Falha: ${d.erro || d.message || `HTTP ${r.status}`}`);
+            setTimeout(() => setToast(null), 4000);
+            if (d.ok) setTimeout(() => window.location.reload(), 1200);
+        } finally {
+            setRetrying(null);
+        }
+    }
+
     if (items.length === 0) return <EmptyMsg msg="Nenhum callback emitido ainda." />;
     return (
         <div className="space-y-2">
@@ -177,6 +193,16 @@ function CallbacksList({ items, expanded, setExpanded }: { items: Callback[]; ex
                                 </div>
                             </div>
                             <BadgeChip ok={ok} label="HTTP" extra={cb.httpStatus?.toString() || (cb.erro ? 'ERR' : '?')} />
+                            {!ok && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); retry(cb); }}
+                                    disabled={retrying === cb.id}
+                                    className="text-[10px] font-bold px-2 py-1 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-300 disabled:opacity-50"
+                                    title="Re-executa o callback"
+                                >
+                                    {retrying === cb.id ? '…' : 'retry'}
+                                </button>
+                            )}
                             <time className="text-[10px] font-mono text-slate-400 ml-2">{new Date(cb.criadoEm).toLocaleString('pt-BR')}</time>
                             <span className="material-symbols-outlined text-[18px] text-slate-400">{open ? 'expand_less' : 'expand_more'}</span>
                         </button>
@@ -194,6 +220,9 @@ function CallbacksList({ items, expanded, setExpanded }: { items: Callback[]; ex
                     </article>
                 );
             })}
+            {toast && (
+                <div className="fixed bottom-6 right-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm px-4 py-3 rounded-lg shadow-2xl font-medium z-50">{toast}</div>
+            )}
         </div>
     );
 }

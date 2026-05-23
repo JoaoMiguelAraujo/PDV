@@ -83,6 +83,39 @@ export async function ingestOrderFromURL(
     return status;
 }
 
+/**
+ * Calcula preparationTime (minutos) a partir da Order parseada e do merchant:
+ *  - se pelo menos um item tem produto.preparoMin, retorna o MAX
+ *  - senão, retorna merchant.averagePreparationTime se setado
+ *  - senão, null (não envia o campo)
+ */
+async function calcularPreparationTime(order: Order, merchant: Merchant): Promise<number | null> {
+    try {
+        const parsed = JSON.parse(order.rawOrder);
+        const externalCodes: string[] = Array.isArray(parsed?.items)
+            ? parsed.items.map((i: any) => i?.externalCode).filter(Boolean)
+            : [];
+        if (externalCodes.length > 0) {
+            // Resolve produtos por codigoExterno OU sku interno (snapshot externalCode pode ser qualquer dos dois).
+            const produtos = await prisma.produto.findMany({
+                where: {
+                    merchantId: merchant.id,
+                    OR: [
+                        { codigoExterno: { in: externalCodes } },
+                        { sku: { in: externalCodes } },
+                    ],
+                },
+                select: { preparoMin: true },
+            });
+            const minutosMax = produtos.reduce((max, p) => p.preparoMin != null && p.preparoMin > max ? p.preparoMin : max, 0);
+            if (minutosMax > 0) return minutosMax;
+        }
+    } catch {
+        // ignora — caímos no fallback
+    }
+    return merchant.averagePreparationTime ?? null;
+}
+
 /** Gera orderExternalCode para o /confirm (sequencial por merchant + sufixo aleatório curto). */
 async function generateExternalCode(merchantId: number): Promise<string> {
     const count = await prisma.order.count({
@@ -130,10 +163,18 @@ export async function doConfirm(
     }
     const settings = await getSettings();
     const externalCode = order.externalCode ?? (await generateExternalCode(merchant.id));
+    // preparationTime (em minutos) — preferência:
+    //   1. options explícito (UI/API)
+    //   2. max(preparoMin) dos produtos do pedido (via externalCode → Produto)
+    //   3. merchant.averagePreparationTime (BasicInfo OD)
+    let preparationTime = options?.preparationTime;
+    if (!preparationTime) {
+        preparationTime = (await calcularPreparationTime(order, merchant)) ?? undefined;
+    }
     const body = {
         createdAt: new Date().toISOString(),
         orderExternalCode: externalCode,
-        ...(options?.preparationTime ? { preparationTime: options.preparationTime } : {}),
+        ...(preparationTime ? { preparationTime } : {}),
         ...(options?.reason ? { reason: options.reason } : {}),
     };
     const result = await callConfirm(merchant, order.orderId, body, settings.payOnConfirm);
