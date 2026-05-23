@@ -18,8 +18,12 @@ if [ -z "$DATABASE_URL" ]; then
     exit 1
 fi
 
-echo "[entrypoint] Aplicando migrations Prisma..."
-node ./node_modules/prisma/build/index.js migrate deploy
+echo "[entrypoint] Sincronizando schema Prisma com o banco (db push)..."
+# `db push` aplica o schema.prisma direto no banco — cria/altera tabelas sem
+# arquivo de migration. Idempotente: em deploys subsequentes, só faz diff.
+# --accept-data-loss permite drops de coluna sem prompt interativo (necessário
+# em container). Use com cuidado quando renomear/remover campos do schema.
+node ./node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss
 
 echo "[entrypoint] Iniciando aplicação: $@"
 exec "$@"

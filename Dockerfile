@@ -54,6 +54,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 # Prisma — engine + schema precisam estar disponíveis em runtime para `migrate deploy`.
+# Prisma — schema + CLI + engines precisam estar disponíveis em runtime
+# para o `db push` rodado pelo entrypoint a cada boot.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
