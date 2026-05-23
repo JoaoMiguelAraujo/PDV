@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
 import { recalcularComanda } from '@/lib/comanda';
+import { hookPagamentoCaixa } from '@/lib/caixa';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,8 @@ export const POST = withAuth(async (req: Request, ctx: RouteCtx) => {
         },
     });
     await recalcularComanda(comandaId);
+    // Hook do caixa — fire-and-forget; falha não bloqueia o pagamento.
+    hookPagamentoCaixa(p.id).catch(() => {});
     return NextResponse.json({ id: p.id, ok: true });
 });
 

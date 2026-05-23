@@ -90,6 +90,7 @@ model Merchant {
   services           MerchantService[]
   mesas              Mesa[]
   comandas           Comanda[]
+  caixas             Caixa[]
 
   @@index([ativo])
 }
@@ -443,6 +444,61 @@ model ItemComanda {
 
   @@index([comandaId, status])
   @@index([produtoId])
+}
+
+// =============================================================================
+// Caixa — controle de turno do operador.
+// Abre com valorInicial (troco), registra movimentos durante o turno
+// (sangria/suprimento manual + VENDA_DINHEIRO automático ao registrar
+// pagamento DINHEIRO), fecha com contagem física e diferença.
+// =============================================================================
+enum CaixaStatus {
+  ABERTO
+  FECHADO
+}
+
+enum MovimentoTipo {
+  SUPRIMENTO        // entrada manual (reforço/troco do dia)
+  SANGRIA           // saída manual (envio ao cofre/depósito)
+  VENDA_DINHEIRO    // entrada automática vinda de Pagamento.metodo=DINHEIRO
+  RETIRADA_TROCO    // saída automática (troco devolvido em DINHEIRO)
+  AJUSTE            // ajuste manual no fechamento
+}
+
+model Caixa {
+  id            Int              @id @default(autoincrement())
+  merchant      Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId    Int
+  status        CaixaStatus      @default(ABERTO)
+  operadorNome  String?          @db.VarChar(120)
+  valorInicial  Decimal          @default(0) @db.Decimal(10, 2)
+  // valorContado e diferenca preenchidos só no fechamento.
+  valorContado  Decimal?         @db.Decimal(10, 2)
+  diferenca     Decimal?         @db.Decimal(10, 2)
+  observacao    String?          @db.Text
+  abertoEm      DateTime         @default(now())
+  fechadoEm     DateTime?
+
+  movimentos    MovimentoCaixa[]
+
+  @@index([merchantId, status])
+  @@index([merchantId, abertoEm])
+}
+
+model MovimentoCaixa {
+  id          Int           @id @default(autoincrement())
+  caixa       Caixa         @relation(fields: [caixaId], references: [id], onDelete: Cascade)
+  caixaId     Int
+  tipo        MovimentoTipo
+  // Valor sempre POSITIVO. O sinal (entrada/saída) vem do tipo.
+  valor       Decimal       @db.Decimal(10, 2)
+  // Quando o movimento veio de um pagamento de comanda.
+  pagamentoId Int?
+  observacao  String?       @db.Text
+  criadoEm    DateTime      @default(now())
+
+  @@index([caixaId, criadoEm])
+  @@index([tipo, criadoEm])
 }
 
 enum MetodoPagamento {
