@@ -47,6 +47,8 @@ model Merchant {
 
   events             OdEvent[]
   orders             Order[]
+  categorias         Categoria[]
+  produtos           Produto[]
 
   @@index([ativo])
 }
@@ -165,4 +167,118 @@ model Setting {
   key       String    @id @db.VarChar(64)
   value     String    @db.Text
   updatedAt DateTime  @updatedAt
+}
+
+// =============================================================================
+// Catálogo — Categoria, Produto, GrupoModificador, OpcaoModificador.
+//
+// Modela o cardápio mantido localmente pelo PDV. O menuGo pode importar este
+// catálogo via GET /api/v1/menu (auth HMAC) — ver docs/pdv-integracao.md.
+//
+// codigoExterno é o SKU equivalente do produto no menuGo (alias do
+// Order.items[].externalCode da spec OD). Permite mapeamento bidirecional.
+// =============================================================================
+model Categoria {
+  id           Int      @id @default(autoincrement())
+  // UUID exposto pela spec OD (campo Category.id é um UUID na spec). Gerado
+  // automaticamente. Estável entre exports — usar como `externalCode` no
+  // menuGo só faz sentido se você QUER que IDs se cruzem; em geral
+  // `externalCode` recebe o nosso ID interno (mais legível em logs).
+  uuid         String   @unique @default(uuid()) @db.Char(36)
+  merchant     Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId   Int
+  nome         String   @db.VarChar(120)
+  descricao    String?  @db.Text
+  ordem        Int      @default(0)
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  produtos     Produto[]
+
+  @@index([merchantId, ativo])
+  @@index([merchantId, ordem])
+}
+
+model Produto {
+  id            Int       @id @default(autoincrement())
+  // UUID exposto pela spec OD — vira `Item.id` E `ItemOffer.itemId` no Menu
+  // exportado por GET /v1/merchant.
+  uuid          String    @unique @default(uuid()) @db.Char(36)
+  // UUID separado para `ItemOffer.id` da spec — Item e ItemOffer têm IDs
+  // distintos no modelo OD. Mantemos um único Produto interno; o offer UUID
+  // é só uma identidade extra estável.
+  offerUuid     String    @unique @default(uuid()) @db.Char(36)
+  merchant      Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId    Int
+  categoria     Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId   Int?
+  nome          String    @db.VarChar(200)
+  descricao     String?   @db.Text
+  preco         Decimal   @db.Decimal(10, 2)
+  // SKU interno do PDV (único por merchant). Usado para integração de estoque
+  // e impressão de comanda.
+  sku           String?   @db.VarChar(80)
+  // Código externo (vira Order.items[].externalCode quando o pedido fluir pelo
+  // menuGo). Pode ser igual ao SKU ou diferente, a critério do operador.
+  codigoExterno String?   @db.VarChar(100)
+  unidade       String    @default("UN") @db.VarChar(10)
+  fotoUrl       String?   @db.VarChar(500)
+  // Tempo médio de preparo em minutos — informativo. Quando o PDV confirma
+  // um pedido, esse valor pode ser usado em OrderConfirmed.preparationTime.
+  preparoMin    Int?
+  ativo         Boolean   @default(true)
+  ordem         Int       @default(0)
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+
+  grupos        GrupoModificador[]
+
+  @@index([merchantId, ativo])
+  @@index([categoriaId])
+  @@index([merchantId, sku])
+}
+
+// =============================================================================
+// GrupoModificador — agrupa opções (ex.: "Tamanho", "Adicionais").
+// `min`/`max` definem regras de escolha (ex.: tamanho min=1 max=1, adicionais
+// min=0 max=3). `obrigatorio` é equivalente a min>=1, mantido para clareza.
+// =============================================================================
+model GrupoModificador {
+  id           Int       @id @default(autoincrement())
+  // UUID exposto na spec como `OptionGroup.id`.
+  uuid         String    @unique @default(uuid()) @db.Char(36)
+  produto      Produto   @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  produtoId    Int
+  nome         String    @db.VarChar(120)
+  min          Int       @default(0)
+  max          Int       @default(1)
+  obrigatorio  Boolean   @default(false)
+  ordem        Int       @default(0)
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  opcoes       OpcaoModificador[]
+
+  @@index([produtoId])
+}
+
+model OpcaoModificador {
+  id             Int       @id @default(autoincrement())
+  // UUID exposto na spec como `Option.id`.
+  uuid           String    @unique @default(uuid()) @db.Char(36)
+  grupo          GrupoModificador @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  grupoId        Int
+  nome           String    @db.VarChar(120)
+  // Soma ao preço do produto base quando essa opção é escolhida. Pode ser
+  // negativo (ex.: "Sem queijo: R$ -2,00") se o operador quiser modelar assim.
+  precoAdicional Decimal   @db.Decimal(10, 2) @default(0)
+  sku            String?   @db.VarChar(80)
+  codigoExterno  String?   @db.VarChar(100)
+  ativo          Boolean   @default(true)
+  ordem          Int       @default(0)
+  criadoEm       DateTime  @default(now())
+  atualizadoEm   DateTime  @updatedAt
+
+  @@index([grupoId, ativo])
 }
