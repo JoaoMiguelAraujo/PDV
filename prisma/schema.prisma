@@ -1,0 +1,163 @@
+// Prisma schema do PDV (Software Service Open Delivery v1.7).
+//
+// Modela:
+//  - Merchants (credenciais de cada empresa/unidade do menuGo que o PDV atende)
+//  - OdEvents  (eventos crus recebidos via POST /v1/newEvent, validados por HMAC)
+//  - Orders    (estado local de cada pedido — ciclo de vida no PDV)
+//  - Callbacks (toda chamada de volta ao menuGo, com response/erro)
+//  - Settings  (chave/valor global: auto_mode, delays, pay_on_confirm, etc.)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Merchant — uma linha por par (Ordering Application, restaurante).
+//
+// O cadastro é manual via /merchants pelo operador admin do PDV. Cada Merchant
+// guarda TANTO o secret HMAC usado para validar o POST /v1/newEvent entrante,
+// QUANTO o client_id/client_secret OAuth2 que o PDV usa para chamar o menuGo
+// de volta. Em geral ambos vêm do menuGo no momento do cadastro da integração.
+// =============================================================================
+model Merchant {
+  id                 Int       @id @default(autoincrement())
+  name               String    @db.VarChar(200)
+  // Identificador OD (X-App-MerchantId). Mín 36 chars; recomendado "CNPJ-UUID".
+  merchantId         String    @unique @db.VarChar(100)
+  // X-App-Id do menuGo (Ordering Application). UUID v4. Único por menuGo, repetido
+  // entre merchants se você atende vários restaurantes da mesma OA.
+  appId              String    @db.VarChar(64)
+  // HMAC do POST /v1/newEvent. Cifrado em repouso (formato enc:v1:<iv>.<ct>).
+  clientSecretEnc    String    @db.Text
+  // URL base pública do menuGo (sem /api). Ex: https://app.menugo.com
+  menugoBaseURL      String    @db.VarChar(255)
+  // Credenciais OAuth2 que o PDV usa em POST {menugoBaseURL}/api/v1/oauth/token.
+  // Pelo desenho do menuGo, o appId é também o client_id.
+  menugoClientId     String    @db.VarChar(64)
+  menugoClientSecretEnc String @db.Text
+  ativo              Boolean   @default(true)
+  observacao         String?   @db.Text
+  criadoEm           DateTime  @default(now())
+  atualizadoEm       DateTime  @updatedAt
+
+  events             OdEvent[]
+  orders             Order[]
+
+  @@index([ativo])
+}
+
+// =============================================================================
+// OdEvent — log cru de eventos recebidos no webhook /v1/newEvent.
+// Persistido sempre, mesmo com HMAC inválido (audit trail).
+// =============================================================================
+model OdEvent {
+  id                 Int       @id @default(autoincrement())
+  merchant           Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  merchantId         Int?
+  // Headers OD recebidos.
+  appIdHeader        String    @db.VarChar(64)
+  merchantIdHeader   String    @db.VarChar(100)
+  signature          String    @db.VarChar(128)
+  // Campos extraídos do body (se foi possível parsear).
+  eventId            String?   @db.VarChar(64)
+  eventType          String?   @db.VarChar(64)
+  orderId            String?   @db.VarChar(64)
+  orderURL           String?   @db.Text
+  body               String    @db.LongText
+  signatureValid     Boolean   @default(false)
+  erro               String?   @db.Text
+  // Resposta crua do GET no orderURL (best-effort, executado em background).
+  orderDetail        String?   @db.LongText
+  orderDetailStatus  Int?
+  criadoEm           DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([merchantId])
+  @@index([eventType])
+  @@index([criadoEm])
+}
+
+// =============================================================================
+// Order — estado local do pedido no PDV.
+//
+// Criado/atualizado quando o GET no orderURL retorna 200 — sem isso não temos
+// os items para mostrar na tela. Para um Event CREATED que ainda não conseguiu
+// fetcheart a Order, a OdEvent fica registrada e o card aparece com warning.
+// =============================================================================
+model Order {
+  id                 Int          @id @default(autoincrement())
+  merchant           Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId         Int
+  // UUID OD gerado pelo menuGo. Único globalmente.
+  orderId            String       @unique @db.VarChar(64)
+  // Campos da Order original — guardados parseados para query/listagem rápida.
+  displayId          String?      @db.VarChar(40)
+  orderType          String?      @db.VarChar(20)     // INDOOR | TAKEOUT | DELIVERY
+  // Snapshot completo do JSON Order retornado pelo GET — verdade primária.
+  rawOrder           String       @db.LongText
+  status             OrderStatus  @default(NEW)
+  // orderExternalCode devolvido ao menuGo no /confirm — em geral o número interno
+  // do pedido no PDV. Gerado pelo PDV (sequencial por merchant).
+  externalCode       String?      @db.VarChar(80)
+  // Snapshot do total e mesa para listagem sem precisar parsear rawOrder.
+  totalValor         Decimal?     @db.Decimal(10, 2)
+  mesa               String?      @db.VarChar(40)
+  cliente            String?      @db.VarChar(200)
+
+  recebidoEm         DateTime     @default(now())
+  confirmadoEm      DateTime?
+  preparandoEm      DateTime?
+  entregueEm        DateTime?
+  canceladoEm        DateTime?
+  cancelMotivo       String?      @db.Text
+  cancelCode         String?      @db.VarChar(60)
+
+  callbacks          Callback[]
+
+  @@index([merchantId, status])
+  @@index([status, recebidoEm])
+}
+
+enum OrderStatus {
+  NEW           // CREATED recebido, ainda não confirmado pelo PDV
+  CONFIRMED     // PDV chamou /confirm
+  PREPARING     // PDV chamou /preparing
+  DELIVERED     // PDV chamou /delivered
+  CANCELLED     // PDV chamou /requestCancellation (ou aceitou cancelamento da OA)
+}
+
+// =============================================================================
+// Callback — log de toda chamada que o PDV faz ao menuGo (Ordering Application).
+// =============================================================================
+model Callback {
+  id                 Int       @id @default(autoincrement())
+  order              Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId            Int
+  // confirm | preparing | delivered | requestCancellation | acceptCancellation | denyCancellation
+  type               String    @db.VarChar(40)
+  // Origem do disparo: MANUAL (botão no KDS) ou AUTO (auto-runner).
+  triggeredBy        String    @default("MANUAL") @db.VarChar(20)
+  requestBody        String?   @db.LongText
+  httpStatus         Int?
+  responseBody       String?   @db.LongText
+  erro               String?   @db.Text
+  criadoEm           DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([type])
+  @@index([criadoEm])
+}
+
+// =============================================================================
+// Setting — config global chave/valor (persistente, sobrescreve env defaults).
+// =============================================================================
+model Setting {
+  key       String    @id @db.VarChar(64)
+  value     String    @db.Text
+  updatedAt DateTime  @updatedAt
+}

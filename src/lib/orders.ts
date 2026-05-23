@@ -1,0 +1,202 @@
+import 'server-only';
+import { prisma } from './db';
+import { logger } from './logger';
+import { fetchOrderFromURL, callConfirm, callPreparing, callDelivered, callRequestCancellation, type CallResult } from './menugo-client';
+import type { ODOrder, ODRequestCancelled } from './od-types';
+import type { Merchant, Order } from '@prisma/client';
+import { getSettings } from './settings';
+
+/**
+ * Lógica de negócio do PDV: cria/atualiza Order a partir do GET orderURL,
+ * aplica callbacks ao menuGo e atualiza o estado local.
+ */
+
+/**
+ * Faz GET orderURL, persiste raw na OdEvent e cria/atualiza a Order local.
+ * Retorna o status HTTP do GET.
+ */
+export async function ingestOrderFromURL(
+    odEventId: number,
+    merchant: Merchant,
+    orderId: string,
+    orderURL: string,
+): Promise<number> {
+    const { status, body } = await fetchOrderFromURL(orderURL);
+
+    await prisma.odEvent.update({
+        where: { id: odEventId },
+        data: { orderDetail: body || null, orderDetailStatus: status || null },
+    });
+
+    if (status !== 200) {
+        logger.warn('ingest/order GET nao 200', { orderId, status });
+        return status;
+    }
+
+    let parsed: ODOrder;
+    try {
+        parsed = JSON.parse(body);
+    } catch {
+        logger.warn('ingest/order JSON invalido', { orderId });
+        return status;
+    }
+    if (!parsed || !Array.isArray(parsed.items)) {
+        logger.warn('ingest/order body sem items', { orderId });
+        return status;
+    }
+
+    const total = parsed.total?.orderAmount?.value ?? null;
+    const mesa = parsed.indoor?.table ?? null;
+    const cliente = parsed.customer?.name ?? parsed.extraInfo ?? null;
+
+    await prisma.order.upsert({
+        where: { orderId: parsed.id },
+        create: {
+            merchantId: merchant.id,
+            orderId: parsed.id,
+            displayId: parsed.displayId ?? null,
+            orderType: parsed.type ?? null,
+            rawOrder: body,
+            totalValor: total !== null ? (total as any) : null,
+            mesa: mesa,
+            cliente: cliente,
+        },
+        update: {
+            // Atualiza só campos da snapshot — preserva status do PDV.
+            displayId: parsed.displayId ?? null,
+            orderType: parsed.type ?? null,
+            rawOrder: body,
+            totalValor: total !== null ? (total as any) : null,
+            mesa: mesa,
+            cliente: cliente,
+        },
+    });
+    return status;
+}
+
+/** Gera orderExternalCode para o /confirm (sequencial por merchant + sufixo aleatório curto). */
+async function generateExternalCode(merchantId: number): Promise<string> {
+    const count = await prisma.order.count({
+        where: { merchantId, NOT: { externalCode: null } },
+    });
+    const seq = String(count + 1).padStart(5, '0');
+    const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `PDV-${seq}-${suffix}`;
+}
+
+async function recordCallback(
+    orderRowId: number,
+    type: string,
+    triggeredBy: 'MANUAL' | 'AUTO',
+    requestBody: any,
+    result: CallResult,
+): Promise<void> {
+    await prisma.callback.create({
+        data: {
+            orderId: orderRowId,
+            type,
+            triggeredBy,
+            requestBody: requestBody !== undefined ? JSON.stringify(requestBody) : null,
+            httpStatus: result.httpStatus || null,
+            responseBody: result.responseBody || null,
+            erro: result.erro,
+        },
+    });
+}
+
+export interface CallbackOutcome {
+    ok: boolean;
+    httpStatus: number;
+    erro: string | null;
+}
+
+export async function doConfirm(
+    order: Order,
+    merchant: Merchant,
+    triggeredBy: 'MANUAL' | 'AUTO',
+    options?: { preparationTime?: number; reason?: string },
+): Promise<CallbackOutcome> {
+    if (order.status !== 'NEW') {
+        return { ok: false, httpStatus: 0, erro: `Status atual ${order.status} não permite confirm` };
+    }
+    const settings = await getSettings();
+    const externalCode = order.externalCode ?? (await generateExternalCode(merchant.id));
+    const body = {
+        createdAt: new Date().toISOString(),
+        orderExternalCode: externalCode,
+        ...(options?.preparationTime ? { preparationTime: options.preparationTime } : {}),
+        ...(options?.reason ? { reason: options.reason } : {}),
+    };
+    const result = await callConfirm(merchant, order.orderId, body, settings.payOnConfirm);
+    await recordCallback(order.id, 'confirm', triggeredBy, body, result);
+    if (result.ok) {
+        await prisma.order.update({
+            where: { id: order.id },
+            data: { status: 'CONFIRMED', confirmadoEm: new Date(), externalCode },
+        });
+    }
+    return { ok: result.ok, httpStatus: result.httpStatus, erro: result.erro };
+}
+
+export async function doPreparing(
+    order: Order,
+    merchant: Merchant,
+    triggeredBy: 'MANUAL' | 'AUTO',
+): Promise<CallbackOutcome> {
+    if (order.status !== 'CONFIRMED') {
+        return { ok: false, httpStatus: 0, erro: `Status atual ${order.status} não permite preparing` };
+    }
+    const result = await callPreparing(merchant, order.orderId);
+    await recordCallback(order.id, 'preparing', triggeredBy, undefined, result);
+    if (result.ok) {
+        await prisma.order.update({
+            where: { id: order.id },
+            data: { status: 'PREPARING', preparandoEm: new Date() },
+        });
+    }
+    return { ok: result.ok, httpStatus: result.httpStatus, erro: result.erro };
+}
+
+export async function doDelivered(
+    order: Order,
+    merchant: Merchant,
+    triggeredBy: 'MANUAL' | 'AUTO',
+): Promise<CallbackOutcome> {
+    if (order.status !== 'CONFIRMED' && order.status !== 'PREPARING') {
+        return { ok: false, httpStatus: 0, erro: `Status atual ${order.status} não permite delivered` };
+    }
+    const result = await callDelivered(merchant, order.orderId);
+    await recordCallback(order.id, 'delivered', triggeredBy, undefined, result);
+    if (result.ok) {
+        await prisma.order.update({
+            where: { id: order.id },
+            data: { status: 'DELIVERED', entregueEm: new Date() },
+        });
+    }
+    return { ok: result.ok, httpStatus: result.httpStatus, erro: result.erro };
+}
+
+export async function doCancel(
+    order: Order,
+    merchant: Merchant,
+    triggeredBy: 'MANUAL' | 'AUTO',
+    body: ODRequestCancelled,
+): Promise<CallbackOutcome> {
+    if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
+        return { ok: false, httpStatus: 0, erro: `Pedido já está em ${order.status}` };
+    }
+    const result = await callRequestCancellation(merchant, order.orderId, body);
+    await recordCallback(order.id, 'requestCancellation', triggeredBy, body, result);
+    if (result.ok) {
+        await prisma.order.update({
+            where: { id: order.id },
+            data: {
+                status: 'CANCELLED',
+                canceladoEm: new Date(),
+                cancelMotivo: body.reason,
+                cancelCode: body.code,
+            },
+        });
+    }
+    return { ok: result.ok, httpStatus: result.httpStatus, erro: result.erro };
+}
