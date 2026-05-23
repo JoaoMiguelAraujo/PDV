@@ -116,6 +116,11 @@ model Order {
   canceladoEm        DateTime?
   cancelMotivo       String?      @db.Text
   cancelCode         String?      @db.VarChar(60)
+  // Quando a OA dispara ORDER_CANCELLATION_REQUEST, marcamos aqui para o
+  // operador decidir via /acceptCancellation ou /denyCancellation. Limpa
+  // assim que o operador resolve.
+  cancelRequested    Boolean      @default(false)
+  cancelRequestedAt  DateTime?
 
   callbacks          Callback[]
 

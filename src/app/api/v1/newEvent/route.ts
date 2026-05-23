@@ -5,7 +5,26 @@ import { verifySignature } from '@/lib/signature';
 import { decryptSecret } from '@/lib/crypto-secrets';
 import { ingestOrderFromURL } from '@/lib/orders';
 import { scheduleAutoTimeline } from '@/lib/auto-runner';
-import type { ODEvent } from '@/lib/od-types';
+import type { ODEvent, ODEventType } from '@/lib/od-types';
+
+// Spec OD v1.7 (eventType): qualquer valor fora deste set é bug do remetente.
+const VALID_EVENT_TYPES: ReadonlySet<ODEventType> = new Set([
+    'CREATED',
+    'CONFIRMED',
+    'PREPARATION_REQUESTED',
+    'PREPARING',
+    'DISPATCHED',
+    'READY_FOR_PICKUP',
+    'PICKUP_AREA_ASSIGNED',
+    'PICKED_UP',
+    'DELIVERED',
+    'CONCLUDED',
+    'CANCELLATION_REQUESTED',
+    'CANCELLATION_REQUEST_DENIED',
+    'CANCELLED',
+    'ORDER_CANCELLATION_REQUEST',
+    'CANCELLED_DENIED',
+]);
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -131,6 +150,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'BadRequest', message: 'JSON inválido' }, { status: 400 });
     }
 
+    // Valida eventType contra enum da spec. Persiste audit trail mesmo se inválido.
+    const eventTypeKnown = !!event?.eventType && VALID_EVENT_TYPES.has(event.eventType as ODEventType);
+
     const eventDb = await persistEvent({
         merchantId: merchant.id,
         appIdHeader: appId!,
@@ -138,9 +160,16 @@ export async function POST(req: Request) {
         signature: signature!,
         body: bodyText,
         valid: true,
-        erro: null,
+        erro: eventTypeKnown ? null : `eventType desconhecido: ${event?.eventType ?? '<vazio>'}`,
         event,
     });
+
+    if (!eventTypeKnown) {
+        return NextResponse.json(
+            { error: 'BadRequest', message: `eventType '${event?.eventType ?? ''}' fora do enum da spec OD v1.7` },
+            { status: 400 },
+        );
+    }
 
     // Processamento por eventType.
     // O PDV (Software Service) é o autor da maioria dos eventos pós-CREATED;
@@ -163,14 +192,21 @@ export async function POST(req: Request) {
                 logger.error('newEvent/ingest crash', { orderId: event!.orderId, message: err?.message });
             }
         })();
-    } else if (event?.eventType === 'ORDER_CANCELLATION_REQUEST') {
-        // OA pediu cancelamento — o PDV deve decidir aceitar (/acceptCancellation)
-        // ou negar (/denyCancellation). Aqui só logamos; a UI exibirá o pedido
-        // na fila com botão para o operador resolver.
-        logger.info('newEvent ORDER_CANCELLATION_REQUEST recebido', {
-            orderId: event.orderId,
-            merchantId: merchant.id,
-        });
+    } else if (event?.eventType === 'ORDER_CANCELLATION_REQUEST' && event.orderId) {
+        // OA pediu cancelamento — marca a flag no Order para o KDS exibir botões
+        // "Aceitar" / "Negar". O operador resolve via /acceptCancellation ou
+        // /denyCancellation, que chamam o menuGo de volta.
+        try {
+            await prisma.order.updateMany({
+                where: { orderId: event.orderId, merchantId: merchant.id },
+                data: { cancelRequested: true, cancelRequestedAt: new Date() },
+            });
+        } catch (err: any) {
+            logger.error('newEvent/cancelRequest update falhou', {
+                orderId: event.orderId,
+                message: err?.message,
+            });
+        }
     }
 
     // Spec OD: 204 No Content é a resposta canônica.

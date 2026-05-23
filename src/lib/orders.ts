@@ -1,8 +1,17 @@
 import 'server-only';
 import { prisma } from './db';
 import { logger } from './logger';
-import { fetchOrderFromURL, callConfirm, callPreparing, callDelivered, callRequestCancellation, type CallResult } from './menugo-client';
-import type { ODOrder, ODRequestCancelled } from './od-types';
+import {
+    fetchOrderFromURL,
+    callConfirm,
+    callPreparing,
+    callDelivered,
+    callRequestCancellation,
+    callAcceptCancellation,
+    callDenyCancellation,
+    type CallResult,
+} from './menugo-client';
+import type { ODOrder, ODRequestCancelled, ODRequestDenied } from './od-types';
 import type { Merchant, Order } from '@prisma/client';
 import { getSettings } from './settings';
 
@@ -193,6 +202,68 @@ export async function doCancel(
             data: {
                 status: 'CANCELLED',
                 canceladoEm: new Date(),
+                cancelMotivo: body.reason,
+                cancelCode: body.code,
+                cancelRequested: false,
+            },
+        });
+    }
+    return { ok: result.ok, httpStatus: result.httpStatus, erro: result.erro };
+}
+
+/**
+ * PDV aceita um ORDER_CANCELLATION_REQUEST disparado pela OA.
+ * → POST /v1/orders/{orderId}/acceptCancellation (spec OD v1.7)
+ * Em caso de sucesso, status local vai para CANCELLED e a flag é limpa.
+ */
+export async function doAcceptCancellation(
+    order: Order,
+    merchant: Merchant,
+    triggeredBy: 'MANUAL' | 'AUTO',
+): Promise<CallbackOutcome> {
+    if (!order.cancelRequested) {
+        return { ok: false, httpStatus: 0, erro: 'Sem ORDER_CANCELLATION_REQUEST pendente para este pedido' };
+    }
+    if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
+        return { ok: false, httpStatus: 0, erro: `Pedido já está em ${order.status}` };
+    }
+    const result = await callAcceptCancellation(merchant, order.orderId);
+    await recordCallback(order.id, 'acceptCancellation', triggeredBy, undefined, result);
+    if (result.ok) {
+        await prisma.order.update({
+            where: { id: order.id },
+            data: {
+                status: 'CANCELLED',
+                canceladoEm: new Date(),
+                cancelRequested: false,
+            },
+        });
+    }
+    return { ok: result.ok, httpStatus: result.httpStatus, erro: result.erro };
+}
+
+/**
+ * PDV nega um ORDER_CANCELLATION_REQUEST disparado pela OA.
+ * → POST /v1/orders/{orderId}/denyCancellation (spec OD v1.7)
+ * Apenas dois códigos da spec são aceitos: DISH_ALREADY_DONE | OUT_FOR_DELIVERY.
+ * Em caso de sucesso, mantém o status atual, limpa a flag e grava o motivo.
+ */
+export async function doDenyCancellation(
+    order: Order,
+    merchant: Merchant,
+    triggeredBy: 'MANUAL' | 'AUTO',
+    body: ODRequestDenied,
+): Promise<CallbackOutcome> {
+    if (!order.cancelRequested) {
+        return { ok: false, httpStatus: 0, erro: 'Sem ORDER_CANCELLATION_REQUEST pendente para este pedido' };
+    }
+    const result = await callDenyCancellation(merchant, order.orderId, body);
+    await recordCallback(order.id, 'denyCancellation', triggeredBy, body, result);
+    if (result.ok) {
+        await prisma.order.update({
+            where: { id: order.id },
+            data: {
+                cancelRequested: false,
                 cancelMotivo: body.reason,
                 cancelCode: body.code,
             },
