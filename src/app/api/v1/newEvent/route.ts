@@ -192,10 +192,14 @@ export async function POST(req: Request) {
                 logger.error('newEvent/ingest crash', { orderId: event!.orderId, message: err?.message });
             }
         })();
-    } else if (event?.eventType === 'ORDER_CANCELLATION_REQUEST' && event.orderId) {
+    } else if (
+        (event?.eventType === 'ORDER_CANCELLATION_REQUEST' || event?.eventType === 'CANCELLATION_REQUESTED')
+        && event.orderId
+    ) {
         // OA pediu cancelamento — marca a flag no Order para o KDS exibir botões
         // "Aceitar" / "Negar". O operador resolve via /acceptCancellation ou
         // /denyCancellation, que chamam o menuGo de volta.
+        // Aceitamos ambos eventTypes (são aliases na spec, ambos válidos).
         try {
             await prisma.order.updateMany({
                 where: { orderId: event.orderId, merchantId: merchant.id },
@@ -204,6 +208,40 @@ export async function POST(req: Request) {
         } catch (err: any) {
             logger.error('newEvent/cancelRequest update falhou', {
                 orderId: event.orderId,
+                message: err?.message,
+            });
+        }
+    } else if (event?.orderId && ['PREPARING', 'READY_FOR_PICKUP', 'DELIVERED', 'CONCLUDED'].includes(event.eventType)) {
+        // Eventos de progresso emitidos pela OA (menuGo) quando o status do
+        // pedido avança no salão (em preparo, pronto, entregue, pago/concluído).
+        // Spec OD v1.7 não tem READY_FOR_PICKUP/CONCLUDED no nosso enum interno —
+        // mapeamos pro status mais próximo. CONCLUDED preenche entregueEm como
+        // sinal de "fechou o ciclo".
+        try {
+            const statusMap: Record<string, 'PREPARING' | 'DELIVERED'> = {
+                PREPARING: 'PREPARING',
+                READY_FOR_PICKUP: 'PREPARING', // não temos READY_FOR_PICKUP no enum interno
+                DELIVERED: 'DELIVERED',
+                CONCLUDED: 'DELIVERED',
+            };
+            const novoStatus = statusMap[event.eventType];
+            const timestampField =
+                event.eventType === 'PREPARING' ? { preparandoEm: new Date() } :
+                event.eventType === 'DELIVERED' || event.eventType === 'CONCLUDED' ? { entregueEm: new Date() } :
+                {};
+            await prisma.order.updateMany({
+                where: { orderId: event.orderId, merchantId: merchant.id },
+                data: { status: novoStatus, ...timestampField },
+            });
+            logger.info('newEvent/status update from OA', {
+                orderId: event.orderId,
+                eventType: event.eventType,
+                novoStatus,
+            });
+        } catch (err: any) {
+            logger.error('newEvent/status update falhou', {
+                orderId: event.orderId,
+                eventType: event.eventType,
                 message: err?.message,
             });
         }

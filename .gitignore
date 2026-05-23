@@ -41,11 +41,14 @@ id_dsa*
 # typescript
 *.tsbuildinfo
 
-# bancos locais (sqlite/dumps)
+# bancos locais (sqlite/dumps) — NUNCA subir dados reais
 *.sqlite
 *.sqlite3
 *.db
 prisma/dev.db*
+*.dmp
+*.sql.bak
+mariadb-dump*
 
 # backups e swap
 *.bak
