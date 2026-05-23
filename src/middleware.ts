@@ -13,7 +13,7 @@ import { AUTH_COOKIE, isCookieValid } from '@/lib/auth-shared';
  * NÃO usa bcrypt aqui — middleware roda em Edge runtime.
  * Validação é feita com HMAC do cookie (puro crypto-only).
  */
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
     const { pathname } = req.nextUrl;
 
     // Allow-list explícito.
@@ -35,7 +35,7 @@ export function middleware(req: NextRequest) {
         return new NextResponse('AUTH_SECRET não configurado', { status: 503 });
     }
 
-    if (isCookieValid(cookie, secret)) {
+    if (await isCookieValid(cookie, secret)) {
         return NextResponse.next();
     }
 
