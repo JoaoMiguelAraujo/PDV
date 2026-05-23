@@ -20,6 +20,7 @@ export async function middleware(req: NextRequest) {
     if (
         pathname.startsWith('/api/v1/newEvent') ||
         pathname.startsWith('/api/v1/merchant') ||
+        pathname.startsWith('/api/admin/seed') ||
         pathname.startsWith('/api/health') ||
         pathname.startsWith('/api/auth/') ||
         pathname === '/login' ||
