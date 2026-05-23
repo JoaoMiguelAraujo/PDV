@@ -2,13 +2,13 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { encryptSecret, SECRET_MASK } from '@/lib/crypto-secrets';
 import { withAuth, badRequest } from '@/lib/api-utils';
+import { applyBasicInfoFields } from '@/lib/merchant-fields';
+import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = withAuth(async () => {
-    const merchants = await prisma.merchant.findMany({ orderBy: { id: 'desc' } });
-    // Mascara secrets na listagem.
-    const safe = merchants.map(m => ({
+function publicMerchant(m: any) {
+    return {
         id: m.id,
         name: m.name,
         merchantId: m.merchantId,
@@ -21,8 +21,42 @@ export const GET = withAuth(async () => {
         observacao: m.observacao,
         criadoEm: m.criadoEm,
         atualizadoEm: m.atualizadoEm,
-    }));
-    return NextResponse.json({ merchants: safe });
+        // BasicInfo OD
+        document: m.document,
+        corporateName: m.corporateName,
+        description: m.description,
+        averageTicket: m.averageTicket,
+        averagePreparationTime: m.averagePreparationTime,
+        minOrderValue: m.minOrderValue,
+        merchantCategories: m.merchantCategoriesJson ? JSON.parse(m.merchantCategoriesJson) : [],
+        acceptedCards: m.acceptedCardsJson ? JSON.parse(m.acceptedCardsJson) : [],
+        contactEmails: m.contactEmailsJson ? JSON.parse(m.contactEmailsJson) : [],
+        address: {
+            country: m.addressCountry,
+            state: m.addressState,
+            city: m.addressCity,
+            district: m.addressDistrict,
+            street: m.addressStreet,
+            number: m.addressNumber,
+            postalCode: m.addressPostalCode,
+            complement: m.addressComplement,
+            reference: m.addressReference,
+            latitude: m.addressLatitude,
+            longitude: m.addressLongitude,
+        },
+        contactPhones: {
+            commercialNumber: m.contactCommercialNumber,
+            whatsappNumber: m.contactWhatsappNumber,
+        },
+        logoImageUrl: m.logoImageUrl,
+        bannerImageUrl: m.bannerImageUrl,
+        odTtl: m.odTtl,
+    };
+}
+
+export const GET = withAuth(async () => {
+    const merchants = await prisma.merchant.findMany({ orderBy: { id: 'desc' } });
+    return NextResponse.json({ merchants: merchants.map(publicMerchant) });
 });
 
 export const POST = withAuth(async (req: Request) => {
@@ -37,20 +71,22 @@ export const POST = withAuth(async (req: Request) => {
         return badRequest('merchantId deve ter no mínimo 36 caracteres (formato CNPJ-UUID recomendado pela spec OD)');
     }
 
+    const data: Prisma.MerchantCreateInput = {
+        name: body.name,
+        merchantId: body.merchantId,
+        appId: body.appId,
+        clientSecretEnc: encryptSecret(body.clientSecret),
+        menugoBaseURL: String(body.menugoBaseURL).replace(/\/$/, ''),
+        menugoClientId: body.menugoClientId,
+        menugoClientSecretEnc: encryptSecret(body.menugoClientSecret),
+        ativo: body.ativo !== false,
+        observacao: body.observacao || null,
+    };
+    const err = applyBasicInfoFields(body, data);
+    if (err) return badRequest(err);
+
     try {
-        const m = await prisma.merchant.create({
-            data: {
-                name: body.name,
-                merchantId: body.merchantId,
-                appId: body.appId,
-                clientSecretEnc: encryptSecret(body.clientSecret),
-                menugoBaseURL: String(body.menugoBaseURL).replace(/\/$/, ''),
-                menugoClientId: body.menugoClientId,
-                menugoClientSecretEnc: encryptSecret(body.menugoClientSecret),
-                ativo: body.ativo !== false,
-                observacao: body.observacao || null,
-            },
-        });
+        const m = await prisma.merchant.create({ data });
         return NextResponse.json({ id: m.id, ok: true });
     } catch (err: any) {
         if (err?.code === 'P2002') {

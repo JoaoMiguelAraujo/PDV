@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
+import { notifyByGrupo } from '@/lib/catalog-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,7 @@ export const PATCH = withAuth(async (req: Request, ctx: RouteCtx) => {
 
     try {
         await prisma.grupoModificador.update({ where: { id }, data });
+        notifyByGrupo(id);
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         if (err?.code === 'P2025') return notFound('grupo não existe');
@@ -40,8 +42,18 @@ export const DELETE = withAuth(async (_req: Request, ctx: RouteCtx) => {
     const { id: idStr } = await ctx.params;
     const id = parseInt(idStr, 10);
     if (!Number.isFinite(id)) return badRequest('id inválido');
+    // Resolve merchantId antes do delete (depois não dá pra ler).
+    const target = await prisma.grupoModificador.findUnique({
+        where: { id },
+        select: { produto: { select: { merchantId: true } } },
+    });
     try {
         await prisma.grupoModificador.delete({ where: { id } });
+        if (target?.produto?.merchantId) {
+            const mid = target.produto.merchantId;
+            // Fire-and-forget direto.
+            import('@/lib/menugo-client').then(m => m.notifyMenuUpdatedAsync(mid));
+        }
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         if (err?.code === 'P2025') return notFound('grupo não existe');

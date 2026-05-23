@@ -27,17 +27,14 @@ datasource db {
 model Merchant {
   id                 Int       @id @default(autoincrement())
   name               String    @db.VarChar(200)
-  // Identificador OD (X-App-MerchantId). Mín 36 chars; recomendado "CNPJ-UUID".
+  // Identificador OD (X-App-MerchantId / Merchant.id da spec). Mín 36 chars;
+  // recomendado "CNPJ-UUID" (linha 3121 do openapi.yaml).
   merchantId         String    @unique @db.VarChar(100)
-  // X-App-Id do menuGo (Ordering Application). UUID v4. Único por menuGo, repetido
-  // entre merchants se você atende vários restaurantes da mesma OA.
+  // X-App-Id do menuGo (Ordering Application). UUID v4.
   appId              String    @db.VarChar(64)
   // HMAC do POST /v1/newEvent. Cifrado em repouso (formato enc:v1:<iv>.<ct>).
   clientSecretEnc    String    @db.Text
-  // URL base pública do menuGo (sem /api). Ex: https://app.menugo.com
   menugoBaseURL      String    @db.VarChar(255)
-  // Credenciais OAuth2 que o PDV usa em POST {menugoBaseURL}/api/v1/oauth/token.
-  // Pelo desenho do menuGo, o appId é também o client_id.
   menugoClientId     String    @db.VarChar(64)
   menugoClientSecretEnc String @db.Text
   ativo              Boolean   @default(true)
@@ -45,12 +42,89 @@ model Merchant {
   criadoEm           DateTime  @default(now())
   atualizadoEm       DateTime  @updatedAt
 
+  // ===========================================================================
+  // BasicInfo da spec OD v1.7 (schema 'BasicInfo' linha 3346 do openapi.yaml).
+  // Campos required: name, document, corporateName, description,
+  // averagePreparationTime, minOrderValue, merchantType, merchantCategories,
+  // address, contactEmails, contactPhones, logoImage.
+  //
+  // merchantType é constante = 'RESTAURANT' (único enum aceito pela spec).
+  // ===========================================================================
+  // CNPJ — 14 dígitos (pattern ^\d{14}$ na spec).
+  document           String?   @db.VarChar(14)
+  corporateName      String?   @db.VarChar(500)
+  description        String?   @db.Text
+  averageTicket      Decimal?  @db.Decimal(10, 2)
+  averagePreparationTime Int?
+  minOrderValue      Decimal?  @db.Decimal(10, 2)
+  // Array JSON de enum MerchantCategory (BURGERS|PIZZA|BBQ|...). Pelo menos 1.
+  merchantCategoriesJson String? @db.Text
+  // Endereço (spec 'Address' linha 5949). Todos required exceto reference.
+  addressCountry     String?   @db.Char(2)
+  addressState       String?   @db.VarChar(40)
+  addressCity        String?   @db.VarChar(120)
+  addressDistrict    String?   @db.VarChar(120)
+  addressStreet      String?   @db.VarChar(200)
+  addressNumber      String?   @db.VarChar(20)
+  addressPostalCode  String?   @db.VarChar(20)
+  addressComplement  String?   @db.VarChar(200)
+  addressReference   String?   @db.VarChar(200)
+  addressLatitude    Decimal?  @db.Decimal(10, 7)
+  addressLongitude   Decimal?  @db.Decimal(10, 7)
+  // Emails de contato (array JSON de strings).
+  contactEmailsJson  String?   @db.Text
+  // ContactPhones (spec linha 6077) — commercialNumber required, whatsapp opcional.
+  contactCommercialNumber String? @db.VarChar(20)
+  contactWhatsappNumber String? @db.VarChar(20)
+  logoImageUrl       String?   @db.VarChar(500)
+  bannerImageUrl     String?   @db.VarChar(500)
+  // Cartões aceitos (array JSON de enum AcceptedCard). Optional na spec.
+  acceptedCardsJson  String?   @db.Text
+  // TTL em segundos (spec Merchant.TTL — min 500, max 86400).
+  odTtl              Int       @default(500)
+
   events             OdEvent[]
   orders             Order[]
   categorias         Categoria[]
   produtos           Produto[]
+  services           MerchantService[]
 
   @@index([ativo])
+}
+
+// =============================================================================
+// MerchantService — fiel ao schema 'Service' (linha 3520 do openapi.yaml).
+// Required: id (uuid), status, serviceType, menuId, serviceHours.
+//
+// menuId aponta para um Menu (entidade da spec) — como não modelamos múltiplos
+// menus internamente, geramos um Menu sintético na hora do export contendo
+// TODAS as categorias do merchant. O menuId aqui é o UUID estável desse menu.
+//
+// serviceHours e serviceArea são serializados como JSON dentro da linha para
+// evitar explosão de tabelas (Hours/TimePeriods/HolidayHours/Polygon, etc.).
+// =============================================================================
+model MerchantService {
+  id           Int      @id @default(autoincrement())
+  uuid         String   @unique @default(uuid()) @db.Char(36)
+  merchant     Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId   Int
+  // DELIVERY | TAKEOUT | INDOOR
+  serviceType  String   @db.VarChar(20)
+  status       String   @default("AVAILABLE") @db.VarChar(20)
+  // ServiceHours (spec linha 3797) — JSON: { id, weekHours: [{dayOfWeek[], timePeriods}], holidayHours? }
+  serviceHoursJson String @db.Text
+  // ServiceArea — só para DELIVERY. JSON do Polygon ou geoRadius.
+  serviceAreaJson  String? @db.Text
+  // serviceTiming opcional (INSTANT|SCHEDULED|ONDEMAND) — JSON.
+  serviceTimingJson String? @db.Text
+  // menuId — UUID do Menu sintético gerado por merchant. Constante por merchant.
+  menuUuid     String   @db.Char(36)
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([merchantId, ativo])
+  @@unique([merchantId, serviceType])
 }
 
 // =============================================================================

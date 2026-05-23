@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest } from '@/lib/api-utils';
+import { notifyByMerchant } from '@/lib/catalog-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,5 +54,6 @@ export const POST = withAuth(async (req: Request) => {
             ativo: body.ativo !== false,
         },
     });
+    notifyByMerchant(c.merchantId);
     return NextResponse.json({ id: c.id, ok: true });
 });

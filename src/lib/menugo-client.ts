@@ -197,3 +197,50 @@ export async function fetchOrderFromURL(orderURL: string): Promise<{ status: num
         return { status: 0, body: '' };
     }
 }
+
+/**
+ * Open Delivery v1.7 — POST /v1/menuUpdated (docs/openapi.yaml linha 2532).
+ *
+ * HOST: ORDERING APPLICATION. DIRECTION: SS → OA.
+ *
+ * Notifica o menuGo que o catálogo do merchant mudou. Por padrão envia body
+ * vazio — a spec define que isso força a OA a refazer GET /v1/merchant para
+ * pegar o estado completo (modo "1 - Sent with an empty body").
+ *
+ * Fire-and-forget: não bloqueia o CRUD do PDV. Erros vão para o log e ficam
+ * disponíveis para retry manual.
+ */
+export async function notifyMenuUpdated(merchantId: number): Promise<void> {
+    try {
+        const merchant = await (await import('./db')).prisma.merchant.findUnique({ where: { id: merchantId } });
+        if (!merchant || !merchant.ativo) return;
+        const url = joinUrl(merchant.menugoBaseURL, '/api/v1/menuUpdated');
+        const token = await getToken(merchant);
+        if (!token) {
+            logger.warn('menugo/menuUpdated sem token', { merchantId });
+            return;
+        }
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            // Body vazio = força a OA a fazer um novo GET /v1/merchant.
+            body: '{}',
+        });
+        if (!res.ok && res.status !== 204) {
+            const text = await res.text().catch(() => '');
+            logger.warn('menugo/menuUpdated nao ok', { merchantId, status: res.status, body: text.slice(0, 200) });
+        }
+    } catch (err: any) {
+        logger.error('menugo/menuUpdated crash', { merchantId, message: err?.message });
+    }
+}
+
+/** Dispara notifyMenuUpdated em background, sem bloquear o caller. */
+export function notifyMenuUpdatedAsync(merchantId: number): void {
+    notifyMenuUpdated(merchantId).catch(err => {
+        logger.error('menugo/menuUpdated background fail', { merchantId, message: err?.message });
+    });
+}

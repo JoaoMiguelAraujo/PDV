@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
+import { notifyByGrupo } from '@/lib/catalog-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,5 +37,6 @@ export const POST = withAuth(async (req: Request, ctx: RouteCtx) => {
             ordem: Number.isFinite(Number(body.ordem)) ? Number(body.ordem) : 0,
         },
     });
+    notifyByGrupo(grupoId);
     return NextResponse.json({ id: o.id, ok: true });
 });

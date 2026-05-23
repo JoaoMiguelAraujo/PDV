@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { preserveOrEncrypt } from '@/lib/crypto-secrets';
 import { invalidateMerchantToken } from '@/lib/menugo-client';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
+import { applyBasicInfoFields } from '@/lib/merchant-fields';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,10 @@ export const PATCH = withAuth(async (req: Request, ctx: RouteCtx) => {
         const next = preserveOrEncrypt(body.menugoClientSecret, current.menugoClientSecretEnc);
         if (next !== null) data.menugoClientSecretEnc = next;
     }
+
+    // Campos BasicInfo da spec OD.
+    const basicErr = applyBasicInfoFields(body, data);
+    if (basicErr) return badRequest(basicErr);
 
     try {
         await prisma.merchant.update({ where: { id }, data });

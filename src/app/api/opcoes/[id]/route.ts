@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
+import { notifyByOpcao } from '@/lib/catalog-notify';
+import { notifyMenuUpdatedAsync } from '@/lib/menugo-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +33,7 @@ export const PATCH = withAuth(async (req: Request, ctx: RouteCtx) => {
 
     try {
         await prisma.opcaoModificador.update({ where: { id }, data });
+        notifyByOpcao(id);
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         if (err?.code === 'P2025') return notFound('opção não existe');
@@ -42,8 +45,14 @@ export const DELETE = withAuth(async (_req: Request, ctx: RouteCtx) => {
     const { id: idStr } = await ctx.params;
     const id = parseInt(idStr, 10);
     if (!Number.isFinite(id)) return badRequest('id inválido');
+    const target = await prisma.opcaoModificador.findUnique({
+        where: { id },
+        select: { grupo: { select: { produto: { select: { merchantId: true } } } } },
+    });
     try {
         await prisma.opcaoModificador.delete({ where: { id } });
+        const mid = target?.grupo?.produto?.merchantId;
+        if (mid) notifyMenuUpdatedAsync(mid);
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         if (err?.code === 'P2025') return notFound('opção não existe');

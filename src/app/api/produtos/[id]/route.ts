@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { withAuth, badRequest, notFound } from '@/lib/api-utils';
+import { notifyByProduto, notifyByMerchant } from '@/lib/catalog-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,7 @@ export const PATCH = withAuth(async (req: Request, ctx: RouteCtx) => {
     }
 
     await prisma.produto.update({ where: { id }, data });
+    notifyByProduto(id);
     return NextResponse.json({ ok: true });
 });
 
@@ -78,8 +80,11 @@ export const DELETE = withAuth(async (_req: Request, ctx: RouteCtx) => {
     const { id: idStr } = await ctx.params;
     const id = parseInt(idStr, 10);
     if (!Number.isFinite(id)) return badRequest('id inválido');
+    const current = await prisma.produto.findUnique({ where: { id }, select: { merchantId: true } });
+    if (!current) return notFound('produto não existe');
     try {
         await prisma.produto.delete({ where: { id } });
+        notifyByMerchant(current.merchantId);
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         if (err?.code === 'P2025') return notFound('produto não existe');
