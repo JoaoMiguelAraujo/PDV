@@ -109,16 +109,16 @@ export default function MerchantsClient() {
     return (
         <div className="max-w-7xl mx-auto px-4 py-6">
             <div className="flex items-center gap-3 mb-4">
-                <h1 className="text-xl font-black">Merchants</h1>
+                <h1 className="text-xl font-black">Estabelecimentos</h1>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                    Credenciais OD + BasicInfo + Services
+                    Credenciais OD + BasicInfo + Serviços
                 </span>
                 <button
                     onClick={() => setCreating(true)}
                     className="ml-auto text-xs font-bold px-3 py-2 rounded-lg bg-primary text-white hover:opacity-90 flex items-center gap-1.5"
                 >
                     <span className="material-symbols-outlined text-[16px]">add</span>
-                    Cadastrar merchant
+                    Cadastrar estabelecimento
                 </button>
             </div>
 

@@ -24,4 +24,12 @@
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
+  /* Quando há sidebar fixa (componente Navbar com .app-sidebar), empurra o
+     conteúdo para a direita em desktop. Em /login a sidebar não é renderizada
+     e a regra não dispara. */
+  @media (min-width: 1024px) {
+    body:has(.app-sidebar) {
+      padding-left: 15rem;
+    }
+  }
 }

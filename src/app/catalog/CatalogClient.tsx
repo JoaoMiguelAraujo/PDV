@@ -148,7 +148,7 @@ export default function CatalogClient() {
 
     return (
         <div className="min-h-screen">
-            <div className="border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-[57px] z-10">
+            <div className="border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-[57px] lg:top-0 z-10">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-2 flex-wrap">
                     <label className="text-xs font-bold flex items-center gap-2">
                         Merchant:

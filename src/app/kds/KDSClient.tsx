@@ -195,7 +195,7 @@ export default function KDSClient() {
     return (
         <div className="min-h-screen">
             {/* Subheader: filtros + toggles */}
-            <div className="border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-[57px] z-10">
+            <div className="border-b border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 sticky top-[57px] lg:top-0 z-10">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-2 flex-wrap">
                     {STATUS_TABS.map(tab => {
                         const active = statusFilter === tab.key;
@@ -411,7 +411,7 @@ function OrderCard({
                 </div>
             ) : (
                 <div className="px-5 py-4 text-xs text-slate-500 dark:text-slate-400">
-                    Aguardando detalhes da Order…
+                    Aguardando detalhes do pedido…
                 </div>
             )}
 

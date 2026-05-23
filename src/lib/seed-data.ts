@@ -195,6 +195,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 merchantId: merchant.id, categoriaId: catBebidas.id,
                 nome: 'Coca-Cola Lata 350ml', descricao: 'Gelada', preco: 6.50, sku: 'BEB-COCA-LT',
                 codigoExterno: 'BEB-COCA-LT', preparoMin: 1, ordem: 1, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=400',
             },
         }),
         cocaDoisL: await prisma.produto.create({
@@ -202,6 +203,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 merchantId: merchant.id, categoriaId: catBebidas.id,
                 nome: 'Coca-Cola 2L', descricao: 'PET 2 litros', preco: 14.90, sku: 'BEB-COCA-2L',
                 codigoExterno: 'BEB-COCA-2L', preparoMin: 1, ordem: 2, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1581636625402-29b2a704ef13?w=400',
             },
         }),
         sucoLaranja: await prisma.produto.create({
@@ -209,6 +211,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 merchantId: merchant.id, categoriaId: catBebidas.id,
                 nome: 'Suco de Laranja Natural', descricao: 'Espremido na hora, 400ml', preco: 12.90, sku: 'BEB-SUC-LAR',
                 codigoExterno: 'BEB-SUC-LAR', preparoMin: 5, ordem: 3, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=400',
             },
         }),
         heineken: await prisma.produto.create({
@@ -216,6 +219,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 merchantId: merchant.id, categoriaId: catBebidas.id,
                 nome: 'Heineken 600ml', descricao: 'Long neck gelada', preco: 18.90, sku: 'BEB-HEIN',
                 codigoExterno: 'BEB-HEIN', preparoMin: 1, ordem: 4, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400',
             },
         }),
         pudim: await prisma.produto.create({
@@ -223,6 +227,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 merchantId: merchant.id, categoriaId: catSobremesas.id,
                 nome: 'Pudim de Leite', descricao: 'Receita da vovó', preco: 12.00, sku: 'SOB-PUD',
                 codigoExterno: 'SOB-PUD', preparoMin: 3, ordem: 1, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=400',
             },
         }),
         mousseMaracuja: await prisma.produto.create({
@@ -230,6 +235,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 merchantId: merchant.id, categoriaId: catSobremesas.id,
                 nome: 'Mousse de Maracujá', descricao: 'Com calda da fruta', preco: 11.50, sku: 'SOB-MAR',
                 codigoExterno: 'SOB-MAR', preparoMin: 2, ordem: 2, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400',
             },
         }),
         bruschetta: await prisma.produto.create({
@@ -238,6 +244,7 @@ export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResul
                 nome: 'Bruschetta de Tomate', descricao: 'Pão italiano, tomate fresco, manjericão e parmesão. Porção com 4 unidades.',
                 preco: 28.90, sku: 'ENT-BRU', codigoExterno: 'ENT-BRU',
                 preparoMin: 8, ordem: 1, unidade: 'UN',
+                fotoUrl: 'https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?w=400',
             },
         }),
     };
