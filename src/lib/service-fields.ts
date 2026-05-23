@@ -63,7 +63,7 @@ export function normalizeServiceHours(input: unknown): { ok: true; value: Normal
     for (let i = 0; i < weekHoursIn.length; i++) {
         const w = weekHoursIn[i];
         if (!w || typeof w !== 'object') return { ok: false, error: `weekHours[${i}] inválido` };
-        const days = Array.isArray(w.dayOfWeek) ? w.dayOfWeek : [];
+        const days: string[] = Array.isArray(w.dayOfWeek) ? w.dayOfWeek.filter((d: unknown): d is string => typeof d === 'string') : [];
         if (days.length === 0) return { ok: false, error: `weekHours[${i}].dayOfWeek vazio` };
         for (const d of days) {
             if (!(DAYS as readonly string[]).includes(d)) return { ok: false, error: `weekHours[${i}].dayOfWeek: '${d}' inválido` };
@@ -72,7 +72,7 @@ export function normalizeServiceHours(input: unknown): { ok: true; value: Normal
         const start = normalizeTime(tp.startTime);
         const end = normalizeTime(tp.endTime);
         if (!start || !end) return { ok: false, error: `weekHours[${i}].timePeriods inválido (use HH:MM)` };
-        weekHours.push({ dayOfWeek: [...new Set(days)], timePeriods: { startTime: start, endTime: end } });
+        weekHours.push({ dayOfWeek: Array.from(new Set(days)), timePeriods: { startTime: start, endTime: end } });
     }
 
     const out: NormalizedServiceHours = {
