@@ -130,14 +130,14 @@ export async function runSeedMenugoMerchant(opts: { force?: boolean } = {}): Pro
     // ------------------------------------------------------------------------
     const catBurger = await prisma.categoria.create({
         data: {
-            merchantId: merchant.id, uuid: randomUUID(), externalCode: 'BURG-CAT-1',
-            name: 'Hambúrgueres', ordem: 1, ativo: true, status: 'AVAILABLE',
+            merchantId: merchant.id, uuid: randomUUID(),
+            nome: 'Hambúrgueres', ordem: 1, ativo: true,
         },
     });
     const catPizza = await prisma.categoria.create({
         data: {
-            merchantId: merchant.id, uuid: randomUUID(), externalCode: 'BURG-CAT-2',
-            name: 'Pizzas do Salão', ordem: 2, ativo: true, status: 'AVAILABLE',
+            merchantId: merchant.id, uuid: randomUUID(),
+            nome: 'Pizzas do Salão', ordem: 2, ativo: true,
         },
     });
 
@@ -299,7 +299,6 @@ export async function runSeedMenugoMerchant(opts: { force?: boolean } = {}): Pro
         data: Array.from({ length: 6 }, (_, i) => ({
             merchantId: merchant.id,
             numero: String(i + 1),
-            nome: `Mesa ${i + 1}`,
             capacidade: 4,
             ativo: true,
         })),
