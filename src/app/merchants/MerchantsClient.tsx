@@ -35,6 +35,7 @@ interface Merchant {
     menugoBaseURL: string;
     menugoClientId: string;
     menugoClientSecretEnc: string;
+    adapterType: 'opendelivery' | 'menugo';
     ativo: boolean;
     observacao: string | null;
     criadoEm: string;
@@ -389,6 +390,7 @@ function initialForm(m: Merchant | null): any {
         return {
             name: '', merchantId: '', appId: '', clientSecret: '',
             menugoBaseURL: '', menugoClientId: '', menugoClientSecret: '',
+            adapterType: 'opendelivery',
             observacao: '', ativo: true,
             document: '', corporateName: '', description: '',
             averageTicket: '', averagePreparationTime: '', minOrderValue: '',
@@ -407,6 +409,7 @@ function initialForm(m: Merchant | null): any {
         clientSecret: m.clientSecretEnc ? SECRET_MASK : '',
         menugoBaseURL: m.menugoBaseURL, menugoClientId: m.menugoClientId,
         menugoClientSecret: m.menugoClientSecretEnc ? SECRET_MASK : '',
+        adapterType: m.adapterType || 'opendelivery',
         observacao: m.observacao || '', ativo: m.ativo,
         document: m.document || '', corporateName: m.corporateName || '',
         description: m.description || '',
@@ -448,6 +451,35 @@ function TabCredenciais({ form, set, isEdit }: any) {
         <>
             <Field label="Nome amigável" hint="Aparece nos cards do KDS.">
                 <input required value={form.name} onChange={e => set('name', e.target.value)} className={INPUT_CLS} />
+            </Field>
+            <Field label="Tipo de API" hint="Define o protocolo da Ordering Application. `menuGo` habilita as ações de mesa+comanda na tela /mesas.">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {[
+                        { value: 'opendelivery', label: 'Open Delivery v1.7', help: 'Spec oficial OD. Sem extensões.' },
+                        { value: 'menugo', label: 'menuGo API', help: 'Fork OD + Saipos. Habilita /mesas: vincular garçom, atribuir comanda, solicitar fechamento.' },
+                    ].map(opt => {
+                        const ativo = (form.adapterType || 'opendelivery') === opt.value;
+                        return (
+                            <label
+                                key={opt.value}
+                                className={`cursor-pointer p-3 rounded-2xl border transition-all ${ativo ? 'bg-primary/5 border-primary/40 ring-1 ring-primary/30' : 'bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10 hover:border-primary/20'}`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="radio"
+                                        name="adapterType"
+                                        value={opt.value}
+                                        checked={ativo}
+                                        onChange={() => set('adapterType', opt.value)}
+                                        className="size-4 accent-primary"
+                                    />
+                                    <span className="text-xs font-black uppercase tracking-tight">{opt.label}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">{opt.help}</p>
+                            </label>
+                        );
+                    })}
+                </div>
             </Field>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field label="X-App-MerchantId" hint="≥36 chars. Recomendado: CNPJ-UUID (spec OD).">

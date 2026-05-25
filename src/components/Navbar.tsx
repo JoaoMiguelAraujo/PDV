@@ -12,6 +12,7 @@ const NAV_GROUPS: Array<{
         label: 'Operação',
         items: [
             { href: '/kds', label: 'KDS', icon: 'point_of_sale' },
+            { href: '/atendimento', label: 'Atendimento', icon: 'restaurant' },
             { href: '/mesas', label: 'Mesas', icon: 'table_restaurant' },
             { href: '/caixa', label: 'Caixa', icon: 'savings' },
         ],

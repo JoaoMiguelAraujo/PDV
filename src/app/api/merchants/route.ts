@@ -17,6 +17,7 @@ function publicMerchant(m: any) {
         menugoBaseURL: m.menugoBaseURL,
         menugoClientId: m.menugoClientId,
         menugoClientSecretEnc: m.menugoClientSecretEnc ? SECRET_MASK : '',
+        adapterType: m.adapterType || 'opendelivery',
         ativo: m.ativo,
         observacao: m.observacao,
         criadoEm: m.criadoEm,
@@ -71,6 +72,8 @@ export const POST = withAuth(async (req: Request) => {
         return badRequest('merchantId deve ter no mínimo 36 caracteres (formato CNPJ-UUID recomendado pela spec OD)');
     }
 
+    const adapterType: 'opendelivery' | 'menugo' =
+        body.adapterType === 'menugo' ? 'menugo' : 'opendelivery';
     const data: Prisma.MerchantCreateInput = {
         name: body.name,
         merchantId: body.merchantId,
@@ -79,6 +82,7 @@ export const POST = withAuth(async (req: Request) => {
         menugoBaseURL: String(body.menugoBaseURL).replace(/\/$/, ''),
         menugoClientId: body.menugoClientId,
         menugoClientSecretEnc: encryptSecret(body.menugoClientSecret),
+        adapterType,
         ativo: body.ativo !== false,
         observacao: body.observacao || null,
     };

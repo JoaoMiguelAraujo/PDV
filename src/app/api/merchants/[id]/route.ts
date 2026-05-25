@@ -31,6 +31,9 @@ export const PATCH = withAuth(async (req: Request, ctx: RouteCtx) => {
     if (body.appId !== undefined) data.appId = body.appId;
     if (body.menugoBaseURL !== undefined) data.menugoBaseURL = String(body.menugoBaseURL).replace(/\/$/, '');
     if (body.menugoClientId !== undefined) data.menugoClientId = body.menugoClientId;
+    if (body.adapterType !== undefined) {
+        data.adapterType = body.adapterType === 'menugo' ? 'menugo' : 'opendelivery';
+    }
     if (body.ativo !== undefined) data.ativo = !!body.ativo;
     if (body.observacao !== undefined) data.observacao = body.observacao || null;
 

@@ -38,6 +38,12 @@ model Merchant {
   menugoClientId     String    @db.VarChar(64)
   menugoClientSecretEnc String @db.Text
   ativo              Boolean   @default(true)
+  // Protocolo da OA (Ordering Application):
+  //   `opendelivery` — spec OD v1.7 pura.
+  //   `menugo`       — fork OD + Saipos, com Mesa+Comanda nativo. Habilita
+  //                    a tela /mesas (vincular garçom, atribuir comanda,
+  //                    solicitar fechamento) e os endpoints extras do menuGo.
+  adapterType        String    @default("opendelivery") @db.VarChar(20)
   observacao         String?   @db.Text
   criadoEm           DateTime  @default(now())
   atualizadoEm       DateTime  @updatedAt
@@ -188,6 +194,13 @@ model Order {
   totalValor         Decimal?     @db.Decimal(10, 2)
   mesa               String?      @db.VarChar(40)
   cliente            String?      @db.VarChar(200)
+  // Extensões `menugo` (Mesa+Comanda). Refletem o estado conhecido no menuGo
+  // após ações disparadas pela tela /atendimento.
+  waiterId           Int?
+  waiterName         String?      @db.VarChar(200)
+  orderPad           String?      @db.VarChar(50)
+  closeSaleRequested Boolean      @default(false)
+  closeSaleRequestedAt DateTime?
 
   recebidoEm         DateTime     @default(now())
   confirmadoEm      DateTime?

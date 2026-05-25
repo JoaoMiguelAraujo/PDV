@@ -203,6 +203,75 @@ export function callDenyCancellation(
     return postCallback(merchant, orderId, 'denyCancellation', body);
 }
 
+// ============================================================================
+// Extensões do adapter `menugo` (fork OD + Saipos)
+// — só fazem sentido quando merchant.adapterType === 'menugo'.
+// ============================================================================
+
+/**
+ * POST /v1/orders/{orderId}/setWaiter — atribui um garçom à mesa do pedido.
+ * O menuGo grava em live_mesas.garcom_id.
+ */
+export function callSetWaiter(
+    merchant: Merchant,
+    orderId: string,
+    body: { id: number | null; name?: string },
+): Promise<CallResult> {
+    return postCallback(merchant, orderId, 'setWaiter', body);
+}
+
+/**
+ * POST /v1/orders/{orderId}/setOrderPad — define o número da comanda física.
+ * Após gravar, o menuGo libera envios "segurados" da sessão (modo
+ * mesa_com_comanda).
+ */
+export function callSetOrderPad(
+    merchant: Merchant,
+    orderId: string,
+    body: { orderPad: string | null },
+): Promise<CallResult> {
+    return postCallback(merchant, orderId, 'setOrderPad', body);
+}
+
+/**
+ * POST /v1/orders/{orderId}/closeSale — solicita fechamento da mesa.
+ * Equivalente ao PUT /close-sale do Saipos. O menuGo bloqueia novos envios
+ * dessa sessão até o operador cancelar a solicitação.
+ */
+export function callCloseSale(
+    merchant: Merchant,
+    orderId: string,
+): Promise<CallResult> {
+    return postCallback(merchant, orderId, 'closeSale', undefined);
+}
+
+/**
+ * GET /v1/merchants/{merchantId}/waiters — lista os garçons disponíveis no
+ * tenant do merchant. Usa o mesmo Bearer OAuth do callback.
+ */
+export async function fetchWaiters(
+    merchant: Merchant,
+): Promise<{ ok: boolean; waiters: Array<{ id: number; name: string; externalCode: string | null }>; erro: string | null }> {
+    const token = await getToken(merchant);
+    if (!token) {
+        return { ok: false, waiters: [], erro: 'Falha ao obter access_token OAuth2' };
+    }
+    const url = joinUrl(merchant.menugoBaseURL, `/api/v1/merchants/${encodeURIComponent(merchant.merchantId)}/waiters`);
+    try {
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        });
+        if (!res.ok) {
+            return { ok: false, waiters: [], erro: `HTTP ${res.status}` };
+        }
+        const json = await res.json().catch(() => null) as { waiters?: any[] } | null;
+        return { ok: true, waiters: json?.waiters ?? [], erro: null };
+    } catch (err: any) {
+        return { ok: false, waiters: [], erro: err?.message || 'erro de rede' };
+    }
+}
+
 /** Busca a Order completa via GET orderURL. Usado pelo /v1/newEvent. */
 export async function fetchOrderFromURL(orderURL: string): Promise<{ status: number; body: string }> {
     try {
