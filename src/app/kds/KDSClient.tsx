@@ -31,6 +31,10 @@ interface Order {
     canceladoEm: string | null;
     cancelMotivo: string | null;
     cancelCode: string | null;
+    // Flag setada pelo /v1/newEvent quando a OA (menuGo) dispara
+    // ORDER_CANCELLATION_REQUEST. Operador resolve via Aceitar/Negar.
+    cancelRequested: boolean;
+    cancelRequestedAt: string | null;
     merchant: Merchant;
     callbacks: Callback[];
 }
@@ -57,12 +61,16 @@ interface ParsedOrder {
 }
 
 const REFRESH_MS = 3000;
-const STATUS_TABS: Array<{ key: 'ALL' | Order['status']; label: string }> = [
+// 'CANCEL_REQ' = pseudo-status que filtra pelos pedidos com cancelRequested=true
+// (independente do status real do pedido). Permite ao operador localizar
+// rapidamente quem precisa de Aceitar/Negar.
+const STATUS_TABS: Array<{ key: 'ALL' | Order['status'] | 'CANCEL_REQ'; label: string }> = [
     { key: 'ALL', label: 'Tudo' },
     { key: 'NEW', label: 'Novos' },
     { key: 'CONFIRMED', label: 'Confirmados' },
     { key: 'PREPARING', label: 'Em preparo' },
     { key: 'DELIVERED', label: 'Entregues' },
+    { key: 'CANCEL_REQ', label: 'Cancel. solicitado' },
     { key: 'CANCELLED', label: 'Cancelados' },
 ];
 
@@ -83,7 +91,8 @@ const CANCEL_CODES = [
 export default function KDSClient() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
-    const [statusFilter, setStatusFilter] = useState<'ALL' | Order['status']>('NEW');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | Order['status'] | 'CANCEL_REQ'>('NEW');
+    const [denyFor, setDenyFor] = useState<Order | null>(null);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [toast, setToast] = useState<string | null>(null);
     const [busy, setBusy] = useState<Record<number, boolean>>({});
@@ -205,12 +214,20 @@ export default function KDSClient() {
 
     const filtered = useMemo(() => {
         if (statusFilter === 'ALL') return orders;
+        if (statusFilter === 'CANCEL_REQ') {
+            return orders.filter(o => o.cancelRequested && o.status !== 'CANCELLED');
+        }
         return orders.filter(o => o.status === statusFilter);
     }, [orders, statusFilter]);
 
     const counts = useMemo(() => {
         const m: Record<string, number> = { ALL: orders.length };
-        for (const o of orders) m[o.status] = (m[o.status] || 0) + 1;
+        let cancelReq = 0;
+        for (const o of orders) {
+            m[o.status] = (m[o.status] || 0) + 1;
+            if (o.cancelRequested && o.status !== 'CANCELLED') cancelReq++;
+        }
+        m.CANCEL_REQ = cancelReq;
         return m;
     }, [orders]);
 
@@ -304,6 +321,8 @@ export default function KDSClient() {
                                 onDelivered={() => action(o.id, 'delivered')}
                                 onCancel={() => setCancelFor(o)}
                                 onDelete={() => setDeleteFor(o)}
+                                onAcceptCancellation={() => action(o.id, 'acceptCancellation')}
+                                onDenyCancellation={() => setDenyFor(o)}
                             />
                         ))}
                     </div>
@@ -328,6 +347,17 @@ export default function KDSClient() {
                     onConfirm={async () => {
                         await deleteOrder(deleteFor.id);
                         setDeleteFor(null);
+                    }}
+                />
+            )}
+
+            {denyFor && (
+                <DenyDialog
+                    order={denyFor}
+                    onClose={() => setDenyFor(null)}
+                    onSubmit={async (reason, code) => {
+                        await action(denyFor.id, 'denyCancellation', { reason, code });
+                        setDenyFor(null);
                     }}
                 />
             )}
@@ -362,6 +392,8 @@ function OrderCard({
     onDelivered,
     onCancel,
     onDelete,
+    onAcceptCancellation,
+    onDenyCancellation,
 }: {
     order: Order;
     busy: boolean;
@@ -370,6 +402,8 @@ function OrderCard({
     onDelivered: () => void;
     onCancel: () => void;
     onDelete: () => void;
+    onAcceptCancellation: () => void;
+    onDenyCancellation: () => void;
 }) {
     const parsed = useMemo<ParsedOrder | null>(() => {
         try {
@@ -381,9 +415,28 @@ function OrderCard({
 
     const recebido = new Date(order.recebidoEm).toLocaleTimeString('pt-BR');
     const tone = STATUS_TONE[order.status];
+    const cancelPending = order.cancelRequested && order.status !== 'CANCELLED';
+    const cancelReqAt = order.cancelRequestedAt
+        ? new Date(order.cancelRequestedAt).toLocaleTimeString('pt-BR')
+        : null;
 
     return (
-        <article className={`bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border ${tone.border} transition`}>
+        <article className={`bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border ${cancelPending ? 'border-red-300 dark:border-red-500/50 ring-2 ring-red-200 dark:ring-red-500/30' : tone.border} transition`}>
+            {cancelPending && (
+                <div className="bg-red-50 dark:bg-red-500/15 border-b border-red-200 dark:border-red-500/30 px-5 py-2.5 flex items-center gap-2 animate-pulse">
+                    <span className="material-symbols-outlined text-red-600 dark:text-red-400 text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-black uppercase tracking-wider text-red-700 dark:text-red-300">
+                            Cancelamento solicitado pelo menuGo
+                        </div>
+                        {cancelReqAt && (
+                            <div className="text-[10px] text-red-600/80 dark:text-red-400/80 font-mono">
+                                Recebido às {cancelReqAt} — aceite ou negue abaixo
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             <header className={`${tone.headerBg} px-5 py-3 flex items-center justify-between gap-2`}>
                 <div className="min-w-0">
                     <div className="text-sm font-black truncate flex items-center gap-2">
@@ -467,31 +520,51 @@ function OrderCard({
             <ActionBar
                 status={order.status}
                 busy={busy}
+                cancelRequested={cancelPending}
                 onConfirm={onConfirm}
                 onPreparing={onPreparing}
                 onDelivered={onDelivered}
                 onCancel={onCancel}
                 onDelete={onDelete}
+                onAcceptCancellation={onAcceptCancellation}
+                onDenyCancellation={onDenyCancellation}
             />
         </article>
     );
 }
 
 function ActionBar({
-    status, busy, onConfirm, onPreparing, onDelivered, onCancel, onDelete,
+    status, busy, cancelRequested,
+    onConfirm, onPreparing, onDelivered, onCancel, onDelete,
+    onAcceptCancellation, onDenyCancellation,
 }: {
     status: Order['status'];
     busy: boolean;
+    cancelRequested: boolean;
     onConfirm: () => void;
     onPreparing: () => void;
     onDelivered: () => void;
     onCancel: () => void;
     onDelete: () => void;
+    onAcceptCancellation: () => void;
+    onDenyCancellation: () => void;
 }) {
     const canConfirm = status === 'NEW';
     const canPreparing = status === 'CONFIRMED';
     const canDelivered = status === 'CONFIRMED' || status === 'PREPARING';
     const canCancel = status !== 'DELIVERED' && status !== 'CANCELLED';
+
+    // Quando o menuGo pediu cancelamento, prioriza Aceitar/Negar e oculta
+    // os botões de transição padrão. O operador resolve a pendência primeiro.
+    if (cancelRequested) {
+        return (
+            <div className="px-5 py-3 border-t border-slate-100 dark:border-white/5 flex items-center gap-2 flex-wrap">
+                <ActionBtn label="Aceitar cancelamento" icon="check_circle" tone="red" disabled={busy} onClick={onAcceptCancellation} />
+                <ActionBtn label="Negar" icon="block" tone="slate" disabled={busy} onClick={onDenyCancellation} />
+                <ActionBtn label="Excluir" icon="delete" tone="slate" disabled={busy} onClick={onDelete} className="ml-auto" />
+            </div>
+        );
+    }
 
     return (
         <div className="px-5 py-3 border-t border-slate-100 dark:border-white/5 flex items-center gap-2 flex-wrap">
@@ -699,6 +772,65 @@ const TONE_BTN = {
     red: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-500/20',
     slate: 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10',
 } as const;
+
+function DenyDialog({
+    order, onClose, onSubmit,
+}: { order: Order; onClose: () => void; onSubmit: (reason: string, code: string) => Promise<void> }) {
+    const [reason, setReason] = useState('');
+    const [code, setCode] = useState<'DISH_ALREADY_DONE' | 'OUT_FOR_DELIVERY'>('DISH_ALREADY_DONE');
+    const [submitting, setSubmitting] = useState(false);
+
+    async function handleSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!reason.trim()) return;
+        setSubmitting(true);
+        try { await onSubmit(reason.trim(), code); } finally { setSubmitting(false); }
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+            <form
+                onSubmit={handleSubmit}
+                onClick={e => e.stopPropagation()}
+                className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-slate-200 dark:border-white/10"
+            >
+                <h2 className="text-lg font-black mb-1">Negar cancelamento #{order.displayId || order.id}</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                    Envia POST <code>/v1/orders/{order.orderId}/denyCancellation</code> ao menuGo.
+                </p>
+
+                <label className="block text-sm font-bold mb-1">Código (spec OD)</label>
+                <select
+                    value={code}
+                    onChange={e => setCode(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 text-sm mb-3"
+                >
+                    <option value="DISH_ALREADY_DONE">DISH_ALREADY_DONE</option>
+                    <option value="OUT_FOR_DELIVERY">OUT_FOR_DELIVERY</option>
+                </select>
+
+                <label className="block text-sm font-bold mb-1">Motivo (livre)</label>
+                <textarea
+                    value={reason}
+                    onChange={e => setReason(e.target.value)}
+                    required
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950 text-sm"
+                    placeholder="Ex.: prato já saiu da cozinha"
+                />
+
+                <div className="flex gap-2 mt-4">
+                    <button type="button" onClick={onClose} className="flex-1 text-sm font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5">
+                        Voltar
+                    </button>
+                    <button type="submit" disabled={submitting || !reason.trim()} className="flex-1 text-sm font-bold px-3 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50">
+                        {submitting ? 'Enviando…' : 'Negar cancelamento'}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+}
 
 function DeleteDialog({
     order, onClose, onConfirm,
