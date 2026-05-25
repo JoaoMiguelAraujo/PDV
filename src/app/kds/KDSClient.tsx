@@ -88,6 +88,7 @@ export default function KDSClient() {
     const [toast, setToast] = useState<string | null>(null);
     const [busy, setBusy] = useState<Record<number, boolean>>({});
     const [cancelFor, setCancelFor] = useState<Order | null>(null);
+    const [deleteFor, setDeleteFor] = useState<Order | null>(null);
     const [autoMode, setAutoMode] = useState(false);
     const [soundOn, setSoundOn] = useState<boolean>(() => {
         if (typeof window === 'undefined') return true;
@@ -155,6 +156,27 @@ export default function KDSClient() {
                 showToast(`Callback ${path} enviado (HTTP ${data.httpStatus})`);
             } else {
                 showToast(`Falha no ${path}: ${data.erro || data.message || 'erro'}`);
+            }
+            await fetchData();
+        } catch (err: any) {
+            showToast(`Erro: ${err.message || err}`);
+        } finally {
+            setBusy(b => ({ ...b, [orderId]: false }));
+        }
+    }
+
+    // Exclusão LOCAL — DELETE /api/orders/{id}. Não envia evento pro menuGo,
+    // apenas remove o registro daqui. Usado pra limpar pedidos de teste/lixo
+    // durante homologação. Pra notificar o menuGo, usar "Cancelar".
+    async function deleteOrder(orderId: number) {
+        setBusy(b => ({ ...b, [orderId]: true }));
+        try {
+            const res = await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.ok) {
+                showToast('Pedido excluído localmente');
+            } else {
+                showToast(`Falha ao excluir: ${data.error || data.message || res.status}`);
             }
             await fetchData();
         } catch (err: any) {
@@ -281,6 +303,7 @@ export default function KDSClient() {
                                 onPreparing={() => action(o.id, 'preparing')}
                                 onDelivered={() => action(o.id, 'delivered')}
                                 onCancel={() => setCancelFor(o)}
+                                onDelete={() => setDeleteFor(o)}
                             />
                         ))}
                     </div>
@@ -294,6 +317,17 @@ export default function KDSClient() {
                     onSubmit={async (reason, code) => {
                         await action(cancelFor.id, 'cancel', { reason, code, mode: 'MANUAL' });
                         setCancelFor(null);
+                    }}
+                />
+            )}
+
+            {deleteFor && (
+                <DeleteDialog
+                    order={deleteFor}
+                    onClose={() => setDeleteFor(null)}
+                    onConfirm={async () => {
+                        await deleteOrder(deleteFor.id);
+                        setDeleteFor(null);
                     }}
                 />
             )}
@@ -327,6 +361,7 @@ function OrderCard({
     onPreparing,
     onDelivered,
     onCancel,
+    onDelete,
 }: {
     order: Order;
     busy: boolean;
@@ -334,6 +369,7 @@ function OrderCard({
     onPreparing: () => void;
     onDelivered: () => void;
     onCancel: () => void;
+    onDelete: () => void;
 }) {
     const parsed = useMemo<ParsedOrder | null>(() => {
         try {
@@ -435,13 +471,14 @@ function OrderCard({
                 onPreparing={onPreparing}
                 onDelivered={onDelivered}
                 onCancel={onCancel}
+                onDelete={onDelete}
             />
         </article>
     );
 }
 
 function ActionBar({
-    status, busy, onConfirm, onPreparing, onDelivered, onCancel,
+    status, busy, onConfirm, onPreparing, onDelivered, onCancel, onDelete,
 }: {
     status: Order['status'];
     busy: boolean;
@@ -449,6 +486,7 @@ function ActionBar({
     onPreparing: () => void;
     onDelivered: () => void;
     onCancel: () => void;
+    onDelete: () => void;
 }) {
     const canConfirm = status === 'NEW';
     const canPreparing = status === 'CONFIRMED';
@@ -461,6 +499,9 @@ function ActionBar({
             <ActionBtn label="Em preparo" icon="soup_kitchen" tone="amber" disabled={!canPreparing || busy} onClick={onPreparing} />
             <ActionBtn label="Entregue" icon="done_all" tone="emerald" disabled={!canDelivered || busy} onClick={onDelivered} />
             <ActionBtn label="Cancelar" icon="cancel" tone="red" disabled={!canCancel || busy} onClick={onCancel} className="ml-auto" />
+            {/* Exclusão LOCAL — não notifica o menuGo. Sempre habilitado;
+                usado pra limpar pedidos de teste/lixo. */}
+            <ActionBtn label="Excluir" icon="delete" tone="slate" disabled={busy} onClick={onDelete} />
         </div>
     );
 }
@@ -470,7 +511,7 @@ function ActionBtn({
 }: {
     label: string;
     icon: string;
-    tone: 'primary' | 'amber' | 'emerald' | 'red';
+    tone: 'primary' | 'amber' | 'emerald' | 'red' | 'slate';
     disabled: boolean;
     onClick: () => void;
     className?: string;
@@ -656,4 +697,49 @@ const TONE_BTN = {
     amber: 'bg-amber-500 text-white hover:bg-amber-600',
     emerald: 'bg-emerald-600 text-white hover:bg-emerald-700',
     red: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-500/20',
+    slate: 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10',
 } as const;
+
+function DeleteDialog({
+    order, onClose, onConfirm,
+}: { order: Order; onClose: () => void; onConfirm: () => Promise<void> }) {
+    const [submitting, setSubmitting] = useState(false);
+
+    async function handleConfirm() {
+        setSubmitting(true);
+        try { await onConfirm(); } finally { setSubmitting(false); }
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+            <div
+                onClick={e => e.stopPropagation()}
+                className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-slate-200 dark:border-white/10"
+            >
+                <h2 className="text-lg font-black mb-1">Excluir pedido #{order.displayId || order.id}?</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                    Exclusão <strong>local</strong> — o pedido será removido apenas deste PDV.
+                    O menuGo <strong>não</strong> é notificado. Pra cancelar e avisar o menuGo, use o botão "Cancelar".
+                </p>
+
+                <div className="flex gap-2 mt-4">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="flex-1 text-sm font-bold px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/5"
+                    >
+                        Voltar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleConfirm}
+                        disabled={submitting}
+                        className="flex-1 text-sm font-bold px-3 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50"
+                    >
+                        {submitting ? 'Excluindo…' : 'Excluir'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
