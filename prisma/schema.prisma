@@ -325,12 +325,43 @@ model Produto {
   atualizadoEm  DateTime  @updatedAt
 
   grupos        GrupoModificador[]
+  variacoes     ProdutoVariacao[]
   itensComanda  ItemComanda[]
   ficha         ProdutoInsumo[]
 
   @@index([merchantId, ativo])
   @@index([categoriaId])
   @@index([merchantId, sku])
+}
+
+// =============================================================================
+// ProdutoVariacao — variações de tamanho (Pequena/Média/Grande) ou outros
+// eixos discretos do produto. Cada variação tem seu PRÓPRIO preço que
+// substitui o `Produto.preco` quando selecionada.
+//
+// Modela a extensão `Product.variations[]` da menuGo API (espelho de
+// `live_produto_variacoes` no menuGo).
+// =============================================================================
+model ProdutoVariacao {
+  id            Int       @id @default(autoincrement())
+  uuid          String    @unique @default(uuid()) @db.Char(36)
+  produto       Produto   @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  produtoId     Int
+  nome          String    @db.VarChar(120)
+  // Preço base do produto NESSA variação (substitui Produto.preco quando ativa).
+  preco         Decimal   @db.Decimal(10, 2)
+  // Código no PDV externo (espelha `Order.items[].externalCode` quando a
+  // variação é selecionada). Em integrações com Saipos, é o `codigo_saipos`
+  // do tamanho.
+  codigoExterno String?   @db.VarChar(100)
+  ordem         Int       @default(0)
+  ativo         Boolean   @default(true)
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+
+  opcoes        OpcaoModificador[]
+
+  @@index([produtoId, ativo])
 }
 
 // =============================================================================
@@ -647,10 +678,16 @@ model OpcaoModificador {
   precoAdicional Decimal   @db.Decimal(10, 2) @default(0)
   sku            String?   @db.VarChar(80)
   codigoExterno  String?   @db.VarChar(100)
+  // Quando preenchido, a opção SÓ aparece pra essa variação do produto
+  // (espelha `live_produto_adicionais.variacao_id` no menuGo). `null` = a
+  // opção vale pra todas as variações (ou produto sem variação).
+  variacao       ProdutoVariacao? @relation(fields: [variacaoId], references: [id], onDelete: SetNull)
+  variacaoId     Int?
   ativo          Boolean   @default(true)
   ordem          Int       @default(0)
   criadoEm       DateTime  @default(now())
   atualizadoEm   DateTime  @updatedAt
 
   @@index([grupoId, ativo])
+  @@index([variacaoId])
 }

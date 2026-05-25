@@ -246,6 +246,66 @@ export function callCloseSale(
 }
 
 /**
+ * GET /v1/products — lista produtos da unidade (versão lite, sem variações
+ * nem grupos de adicionais). Use `fetchProductDetail(id)` pra detalhe completo.
+ */
+export async function fetchProducts(
+    merchant: Merchant,
+): Promise<{ ok: boolean; products: any[]; categories: any[]; erro: string | null }> {
+    const token = await getToken(merchant);
+    if (!token) {
+        return { ok: false, products: [], categories: [], erro: 'Falha ao obter access_token OAuth2' };
+    }
+    const url = joinUrl(merchant.menugoBaseURL, '/api/v1/products');
+    try {
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        });
+        if (!res.ok) {
+            return { ok: false, products: [], categories: [], erro: `HTTP ${res.status}` };
+        }
+        const json = await res.json().catch(() => null) as { products?: any[]; categories?: any[] } | null;
+        return {
+            ok: true,
+            products: json?.products ?? [],
+            categories: json?.categories ?? [],
+            erro: null,
+        };
+    } catch (err: any) {
+        return { ok: false, products: [], categories: [], erro: err?.message || 'erro de rede' };
+    }
+}
+
+/**
+ * GET /v1/products/{id} — detalhe completo do produto com variações e
+ * grupos de opções aninhados (incluindo `variationId` e `externalCode`).
+ */
+export async function fetchProductDetail(
+    merchant: Merchant,
+    productId: number,
+): Promise<{ ok: boolean; product: any | null; erro: string | null }> {
+    const token = await getToken(merchant);
+    if (!token) {
+        return { ok: false, product: null, erro: 'Falha ao obter access_token OAuth2' };
+    }
+    const url = joinUrl(merchant.menugoBaseURL, `/api/v1/products/${productId}`);
+    try {
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        });
+        if (!res.ok) {
+            return { ok: false, product: null, erro: `HTTP ${res.status}` };
+        }
+        const json = await res.json().catch(() => null) as { product?: any } | null;
+        return { ok: true, product: json?.product ?? null, erro: null };
+    } catch (err: any) {
+        return { ok: false, product: null, erro: err?.message || 'erro de rede' };
+    }
+}
+
+/**
  * GET /v1/merchants/{merchantId}/waiters — lista os garçons disponíveis no
  * tenant do merchant. Usa o mesmo Bearer OAuth do callback.
  */

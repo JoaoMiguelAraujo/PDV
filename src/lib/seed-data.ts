@@ -17,6 +17,11 @@ import { logger } from './logger';
 const SEED_MERCHANT_ID = '22815773000169-dbc7e35a-c936-4665-9e13-eb55eb8b6824';
 const SEED_APP_ID = '0d549e3d-e562-4ec0-b421-e7b19fb933ff';
 
+// Segundo merchant — exemplo do adapter `menugo` (Mesa + Comanda).
+// merchantId distinto pra coexistir com o seed OD vanilla acima.
+const SEED_MENUGO_MERCHANT_ID = '11222333000144-7f5e1c8a-3d4b-49c1-8a2e-9b6c0e1d4a77';
+const SEED_MENUGO_APP_ID = '0d549e3d-e562-4ec0-b421-e7b19fb933ff';
+
 export interface SeedResult {
     created: boolean;
     skippedReason?: string;
@@ -34,6 +39,276 @@ export interface SeedResult {
 }
 
 export async function runSeed(opts: { force?: boolean } = {}): Promise<SeedResult> {
+    const result = await runSeedPizzariaOD(opts);
+    // Segundo merchant — exemplo do adapter menuGo (Mesa + Comanda).
+    // Roda em sequência; é idempotente igual ao primeiro.
+    await runSeedMenugoMerchant(opts).catch(err =>
+        logger.error('seed/menugo merchant falhou (não bloqueia o seed principal)', { message: err?.message })
+    );
+    return result;
+}
+
+/**
+ * Cria o segundo merchant de demonstração — hamburgueria operando com
+ * Mesa + Comanda (adapter `menugo`). Idempotente.
+ */
+export async function runSeedMenugoMerchant(opts: { force?: boolean } = {}): Promise<{ created: boolean; skippedReason?: string }> {
+    const existing = await prisma.merchant.findUnique({ where: { merchantId: SEED_MENUGO_MERCHANT_ID } });
+    if (existing && !opts.force) {
+        return { created: false, skippedReason: `Merchant menuGo ${SEED_MENUGO_MERCHANT_ID} já existe` };
+    }
+    if (existing && opts.force) {
+        logger.warn('seed/menugo force apagando merchant existente', { id: existing.id });
+        await prisma.merchant.delete({ where: { id: existing.id } });
+    }
+
+    const merchant = await prisma.merchant.create({
+        data: {
+            name: 'Burger Salão Comanda',
+            merchantId: SEED_MENUGO_MERCHANT_ID,
+            appId: SEED_MENUGO_APP_ID,
+            clientSecretEnc: encryptSecret('seed-menugo-hmac-secret-troque-em-prod-aaaaaa'),
+            menugoBaseURL: 'https://app.menugo.com',
+            menugoClientId: SEED_MENUGO_APP_ID,
+            menugoClientSecretEnc: encryptSecret('seed-menugo-oauth-secret-troque-em-prod-bbbbbb'),
+            adapterType: 'menugo',
+            ativo: true,
+            observacao: 'Seed do adapter menuGo (Mesa + Comanda). Apague antes de produção.',
+
+            document: '11222333000144',
+            corporateName: 'Burger Salão Comanda Bar e Restaurante LTDA',
+            description: 'Hamburgueria artesanal com salão grande — operada em Mesa + Comanda.',
+            averageTicket: 60,
+            averagePreparationTime: 18,
+            minOrderValue: 15.00,
+            merchantCategoriesJson: JSON.stringify(['BURGERS', 'SNACKS', 'BBQ']),
+            acceptedCardsJson: JSON.stringify(['VISA', 'MASTERCARD', 'ELO']),
+            contactEmailsJson: JSON.stringify(['contato@burgersalao.com.br']),
+            contactCommercialNumber: '11988887777',
+            contactWhatsappNumber: '11988887777',
+            logoImageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=512&h=512&fit=crop',
+            bannerImageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=1144&h=400&fit=crop',
+            addressCountry: 'BR',
+            addressState: 'BR-SP',
+            addressCity: 'São Paulo',
+            addressDistrict: 'Pinheiros',
+            addressStreet: 'Rua dos Pinheiros',
+            addressNumber: '742',
+            addressPostalCode: '05422-001',
+            addressLatitude: -23.5630,
+            addressLongitude: -46.6850,
+            odTtl: 600,
+        },
+    });
+
+    // Service INDOOR — o adapter menuGo é focado em salão.
+    await prisma.merchantService.create({
+        data: {
+            merchantId: merchant.id,
+            uuid: randomUUID(),
+            menuUuid: deterministicMenuUuid(merchant.id),
+            serviceType: 'INDOOR',
+            status: 'AVAILABLE',
+            serviceHoursJson: JSON.stringify({
+                id: randomUUID(),
+                weekHours: [
+                    {
+                        dayOfWeek: ['TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+                        timePeriods: { startTime: '17:00:00.000Z', endTime: '23:30:00.000Z' },
+                    },
+                ],
+            }),
+        },
+    });
+
+    // ------------------------------------------------------------------------
+    // Catálogo — 2 categorias, 4 produtos. Inclui:
+    //   - Smash Burger: produto SEM variação, com 2 grupos de adicionais
+    //     (Queijo Extra, Molhos).
+    //   - Pizza Salão: produto COM 3 variações (P/M/G), com 2 grupos cuja
+    //     opções têm preço diferente por variação (Borda, Sabor adicional).
+    // ------------------------------------------------------------------------
+    const catBurger = await prisma.categoria.create({
+        data: {
+            merchantId: merchant.id, uuid: randomUUID(), externalCode: 'BURG-CAT-1',
+            name: 'Hambúrgueres', ordem: 1, ativo: true, status: 'AVAILABLE',
+        },
+    });
+    const catPizza = await prisma.categoria.create({
+        data: {
+            merchantId: merchant.id, uuid: randomUUID(), externalCode: 'BURG-CAT-2',
+            name: 'Pizzas do Salão', ordem: 2, ativo: true, status: 'AVAILABLE',
+        },
+    });
+
+    // ----- Smash Duplo — sem variação, com grupos de adicionais -----
+    const smashDuplo = await prisma.produto.create({
+        data: {
+            merchantId: merchant.id, categoriaId: catBurger.id,
+            uuid: randomUUID(), offerUuid: randomUUID(),
+            nome: 'Smash Duplo',
+            descricao: 'Dois discos de blend 90/10, queijo americano, picles, molho da casa.',
+            preco: 32.00, codigoExterno: 'BURG-101', sku: 'BURG-101',
+            preparoMin: 12, ordem: 1, ativo: true,
+        },
+    });
+
+    const grupoQueijoSmash = await prisma.grupoModificador.create({
+        data: {
+            produtoId: smashDuplo.id, uuid: randomUUID(),
+            nome: 'Queijo extra', min: 0, max: 2, obrigatorio: false, ordem: 1,
+        },
+    });
+    await prisma.opcaoModificador.createMany({
+        data: [
+            { grupoId: grupoQueijoSmash.id, uuid: randomUUID(), nome: 'Cheddar inglês',  precoAdicional: 4.00, codigoExterno: 'SMASH-Q-CHED', ordem: 1, ativo: true },
+            { grupoId: grupoQueijoSmash.id, uuid: randomUUID(), nome: 'Provolone',       precoAdicional: 3.50, codigoExterno: 'SMASH-Q-PROV', ordem: 2, ativo: true },
+            { grupoId: grupoQueijoSmash.id, uuid: randomUUID(), nome: 'Catupiry',        precoAdicional: 4.50, codigoExterno: 'SMASH-Q-CAT',  ordem: 3, ativo: true },
+        ],
+    });
+
+    const grupoMolhoSmash = await prisma.grupoModificador.create({
+        data: {
+            produtoId: smashDuplo.id, uuid: randomUUID(),
+            nome: 'Molhos', min: 0, max: 3, obrigatorio: false, ordem: 2,
+        },
+    });
+    await prisma.opcaoModificador.createMany({
+        data: [
+            { grupoId: grupoMolhoSmash.id, uuid: randomUUID(), nome: 'Maionese da casa', precoAdicional: 0,    codigoExterno: 'MOL-MAI', ordem: 1, ativo: true },
+            { grupoId: grupoMolhoSmash.id, uuid: randomUUID(), nome: 'Barbecue',         precoAdicional: 2.00, codigoExterno: 'MOL-BBQ', ordem: 2, ativo: true },
+            { grupoId: grupoMolhoSmash.id, uuid: randomUUID(), nome: 'Cheddar líquido',  precoAdicional: 3.00, codigoExterno: 'MOL-CHE', ordem: 3, ativo: true },
+        ],
+    });
+
+    // ----- Cheddar Bacon — sem variação, sem grupos (produto simples) -----
+    await prisma.produto.create({
+        data: {
+            merchantId: merchant.id, categoriaId: catBurger.id,
+            uuid: randomUUID(), offerUuid: randomUUID(),
+            nome: 'Cheddar Bacon', descricao: 'Blend 200g, cheddar inglês derretido, bacon crocante.',
+            preco: 38.00, codigoExterno: 'BURG-102', sku: 'BURG-102',
+            preparoMin: 14, ordem: 2, ativo: true,
+        },
+    });
+
+    // ----- Pizza Salão — COM variações P/M/G + grupos com opções vinculadas -----
+    const pizzaSalao = await prisma.produto.create({
+        data: {
+            merchantId: merchant.id, categoriaId: catPizza.id,
+            uuid: randomUUID(), offerUuid: randomUUID(),
+            nome: 'Pizza Salão Margherita',
+            descricao: 'Massa de fermentação natural, molho de tomate San Marzano, mussarela de búfala e manjericão fresco. Disponível em 3 tamanhos.',
+            preco: 0, // preço vem das variações
+            codigoExterno: 'PIZZA-MARG', sku: 'PIZZA-MARG',
+            preparoMin: 18, ordem: 1, ativo: true,
+        },
+    });
+
+    // Variações P/M/G — cada uma com seu preço base.
+    const varP = await prisma.produtoVariacao.create({
+        data: {
+            produtoId: pizzaSalao.id, uuid: randomUUID(),
+            nome: 'Pequena', preco: 32.00, codigoExterno: 'PIZZA-MARG-P', ordem: 0, ativo: true,
+        },
+    });
+    const varM = await prisma.produtoVariacao.create({
+        data: {
+            produtoId: pizzaSalao.id, uuid: randomUUID(),
+            nome: 'Média', preco: 48.00, codigoExterno: 'PIZZA-MARG-M', ordem: 1, ativo: true,
+        },
+    });
+    const varG = await prisma.produtoVariacao.create({
+        data: {
+            produtoId: pizzaSalao.id, uuid: randomUUID(),
+            nome: 'Grande', preco: 64.00, codigoExterno: 'PIZZA-MARG-G', ordem: 2, ativo: true,
+        },
+    });
+
+    // Grupo "Borda" — opções com preço diferente por variação.
+    // Borda Recheada: P R$5 / M R$8 / G R$12. Tradicional: grátis em todas.
+    const grupoBorda = await prisma.grupoModificador.create({
+        data: {
+            produtoId: pizzaSalao.id, uuid: randomUUID(),
+            nome: 'Borda', min: 1, max: 1, obrigatorio: true, ordem: 1,
+        },
+    });
+    await prisma.opcaoModificador.createMany({
+        data: [
+            // Tradicional — sem upgrade, vale pra TODAS variações (variacaoId=null).
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Tradicional', precoAdicional: 0, codigoExterno: 'BORDA-TRAD', variacaoId: null, ordem: 1, ativo: true },
+            // Recheada com Catupiry — preço cresce por tamanho.
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Recheada Catupiry', precoAdicional: 5.00,  codigoExterno: 'BORDA-CAT-P', variacaoId: varP.id, ordem: 2, ativo: true },
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Recheada Catupiry', precoAdicional: 8.00,  codigoExterno: 'BORDA-CAT-M', variacaoId: varM.id, ordem: 3, ativo: true },
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Recheada Catupiry', precoAdicional: 12.00, codigoExterno: 'BORDA-CAT-G', variacaoId: varG.id, ordem: 4, ativo: true },
+            // Recheada com Cheddar — idem.
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Recheada Cheddar', precoAdicional: 6.00,  codigoExterno: 'BORDA-CHE-P', variacaoId: varP.id, ordem: 5, ativo: true },
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Recheada Cheddar', precoAdicional: 9.00,  codigoExterno: 'BORDA-CHE-M', variacaoId: varM.id, ordem: 6, ativo: true },
+            { grupoId: grupoBorda.id, uuid: randomUUID(), nome: 'Recheada Cheddar', precoAdicional: 14.00, codigoExterno: 'BORDA-CHE-G', variacaoId: varG.id, ordem: 7, ativo: true },
+        ],
+    });
+
+    // Grupo "Adicional de sabor" — multiopção (até 3), preço por variação.
+    const grupoSabor = await prisma.grupoModificador.create({
+        data: {
+            produtoId: pizzaSalao.id, uuid: randomUUID(),
+            nome: 'Adicional de sabor', min: 0, max: 3, obrigatorio: false, ordem: 2,
+        },
+    });
+    await prisma.opcaoModificador.createMany({
+        data: [
+            // Calabresa — adicional por variação.
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Calabresa',       precoAdicional: 5.00,  codigoExterno: 'SAB-CALA-P', variacaoId: varP.id, ordem: 1, ativo: true },
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Calabresa',       precoAdicional: 7.00,  codigoExterno: 'SAB-CALA-M', variacaoId: varM.id, ordem: 2, ativo: true },
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Calabresa',       precoAdicional: 10.00, codigoExterno: 'SAB-CALA-G', variacaoId: varG.id, ordem: 3, ativo: true },
+            // Bacon.
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Bacon crocante',  precoAdicional: 6.00,  codigoExterno: 'SAB-BAC-P',  variacaoId: varP.id, ordem: 4, ativo: true },
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Bacon crocante',  precoAdicional: 9.00,  codigoExterno: 'SAB-BAC-M',  variacaoId: varM.id, ordem: 5, ativo: true },
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Bacon crocante',  precoAdicional: 13.00, codigoExterno: 'SAB-BAC-G',  variacaoId: varG.id, ordem: 6, ativo: true },
+            // Azeitona — preço plano, vale pra todas variações.
+            { grupoId: grupoSabor.id, uuid: randomUUID(), nome: 'Azeitona preta',  precoAdicional: 3.00,  codigoExterno: 'SAB-AZE',    variacaoId: null,    ordem: 7, ativo: true },
+        ],
+    });
+
+    // ----- Veggie Especial — sem variação, grupo opcional simples -----
+    const veggie = await prisma.produto.create({
+        data: {
+            merchantId: merchant.id, categoriaId: catBurger.id,
+            uuid: randomUUID(), offerUuid: randomUUID(),
+            nome: 'Veggie Especial',
+            descricao: 'Hambúrguer de grão-de-bico com queijo provolone e tomate confitado.',
+            preco: 35.00, codigoExterno: 'BURG-103', sku: 'BURG-103',
+            preparoMin: 14, ordem: 3, ativo: true,
+        },
+    });
+    const grupoExtraVeggie = await prisma.grupoModificador.create({
+        data: {
+            produtoId: veggie.id, uuid: randomUUID(),
+            nome: 'Extras', min: 0, max: 2, obrigatorio: false, ordem: 1,
+        },
+    });
+    await prisma.opcaoModificador.createMany({
+        data: [
+            { grupoId: grupoExtraVeggie.id, uuid: randomUUID(), nome: 'Cebola caramelizada', precoAdicional: 3.00, codigoExterno: 'VEG-CEB', ordem: 1, ativo: true },
+            { grupoId: grupoExtraVeggie.id, uuid: randomUUID(), nome: 'Cogumelo paris',      precoAdicional: 4.50, codigoExterno: 'VEG-COG', ordem: 2, ativo: true },
+        ],
+    });
+
+    // 6 mesas pra simular salão pequeno-médio.
+    await prisma.mesa.createMany({
+        data: Array.from({ length: 6 }, (_, i) => ({
+            merchantId: merchant.id,
+            numero: String(i + 1),
+            nome: `Mesa ${i + 1}`,
+            capacidade: 4,
+            ativo: true,
+        })),
+    });
+
+    return { created: true };
+}
+
+async function runSeedPizzariaOD(opts: { force?: boolean } = {}): Promise<SeedResult> {
     const existing = await prisma.merchant.findUnique({ where: { merchantId: SEED_MERCHANT_ID } });
     if (existing && !opts.force) {
         return { created: false, skippedReason: `Merchant ${SEED_MERCHANT_ID} já existe (use force=1 para recriar)` };
